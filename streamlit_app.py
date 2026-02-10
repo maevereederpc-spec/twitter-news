@@ -393,7 +393,7 @@ st.markdown(
     }
     .article-card img[width] { width: auto !important; max-width: 100% !important; height: auto !important; }
 
-    /* --- Summary: reserve 8 lines of space and center --- */
+    /* --- Summary: reserve 12 lines of space and center --- */
     .summary {
       color: #3b2a2f;
       font-size: 0.96rem;
@@ -403,11 +403,13 @@ st.markdown(
       overflow: hidden;
       display: -webkit-box;
       -webkit-box-orient: vertical;
-      -webkit-line-clamp: 8;
-      min-height: calc(1.45em * 8);
+      -webkit-line-clamp: 12; /* show up to 12 lines visually */
+      /* Reserve space for 12 lines even if content is shorter */
+      min-height: calc(1.45em * 12);
       text-align: center;
       flex: 0 0 auto;
       width: 100%;
+      box-sizing: border-box;
     }
 
     /* Muted meta centered */
