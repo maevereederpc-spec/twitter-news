@@ -266,19 +266,19 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
     :root{
-      /* Blood-red theme: vivid, saturated red tones */
-      --bg:#200000;
-      --card:#4b0000;
-      --muted:#ffbfbf;
-      --accent:#b80000;
-      --accent-strong:#ff0000;
-      --text:#fff7f7;
-      --sidebar-black:#0b0b0b;
-      --sidebar-text:#ffffff;
-      --border: rgba(255,0,0,0.12);
-      --shadow: 0 10px 30px rgba(255,0,0,0.10);
-      --action-pink: #ff0000;
-      --action-pink-strong: #ff1a1a;
+      /* Lavender theme: soft, cool purple tones */
+      --bg:#f6f3ff;
+      --card:#efe9ff;
+      --muted:#6b5b7b;
+      --accent:#b497ff;
+      --accent-strong:#8f63ff;
+      --text:#2b1f22;
+      --sidebar-black:#1b1330;
+      --sidebar-text:#f7f3ff;
+      --border: rgba(143,99,255,0.12);
+      --shadow: 0 10px 30px rgba(143,99,255,0.06);
+      --action-pink: #9b6bff;
+      --action-pink-strong: #7a3cff;
     }
     html, body, [class*="css"]  {
       background: var(--bg);
@@ -287,13 +287,13 @@ st.markdown(
       line-height: 1.6;
     }
     .stSidebar {
-      background: linear-gradient(180deg, var(--sidebar-black), #111111);
+      background: linear-gradient(180deg, var(--sidebar-black), #2a1f3a);
       color: var(--sidebar-text);
       border-right: 1px solid rgba(255,255,255,0.04);
       padding-top: 18px;
     }
     .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
-      background: #0f0f0f;
+      background: #241a33;
       color: var(--sidebar-text);
       font-family: 'Inter', sans-serif;
     }
@@ -347,8 +347,8 @@ st.markdown(
       margin-bottom: 8px;
       font-weight: 800;
       letter-spacing: -0.2px;
-      box-shadow: 0 6px 18px rgba(255,0,0,0.12);
-      border: 1px solid rgba(255,0,0,0.12);
+      box-shadow: 0 6px 18px rgba(143,99,255,0.12);
+      border: 1px solid rgba(143,99,255,0.12);
       min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
       box-sizing: border-box;
     }
@@ -363,7 +363,7 @@ st.markdown(
 
     /* Title/link outside heading remains centered and constrained */
     a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { background: rgba(255,0,0,0.03); text-decoration: none; }
+    a.article-link:hover { background: rgba(143,99,255,0.06); text-decoration: none; }
 
     /* --- Image centering and responsive behavior --- */
     .article-card .stImage,
@@ -398,7 +398,7 @@ st.markdown(
 
     /* --- Summary: reserve 12 lines of space and center --- */
     .summary {
-      color: #ffecec;
+      color: #3b2a3b;
       font-size: 0.96rem;
       line-height: 1.45;
       margin-top: 6px;
