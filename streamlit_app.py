@@ -266,19 +266,19 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
     :root{
-      /* More red-forward dark theme (less brown, more vivid red) */
-      --bg:#2b0000;
-      --card:#4a0b0b;
-      --muted:#ffcccc;
-      --accent:#b30000;
-      --accent-strong:#ff2b2b;
-      --text:#fff5f5;
+      /* Blood-red theme: vivid, saturated red tones */
+      --bg:#200000;
+      --card:#4b0000;
+      --muted:#ffbfbf;
+      --accent:#b80000;
+      --accent-strong:#ff0000;
+      --text:#fff7f7;
       --sidebar-black:#0b0b0b;
       --sidebar-text:#ffffff;
-      --border: rgba(255,43,43,0.12);
-      --shadow: 0 10px 30px rgba(255,43,43,0.08);
-      --action-pink: #ff2b2b;
-      --action-pink-strong: #ff1f1f;
+      --border: rgba(255,0,0,0.12);
+      --shadow: 0 10px 30px rgba(255,0,0,0.10);
+      --action-pink: #ff0000;
+      --action-pink-strong: #ff1a1a;
     }
     html, body, [class*="css"]  {
       background: var(--bg);
@@ -347,8 +347,8 @@ st.markdown(
       margin-bottom: 8px;
       font-weight: 800;
       letter-spacing: -0.2px;
-      box-shadow: 0 6px 18px rgba(255,43,43,0.12);
-      border: 1px solid rgba(255,43,43,0.12);
+      box-shadow: 0 6px 18px rgba(255,0,0,0.12);
+      border: 1px solid rgba(255,0,0,0.12);
       min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
       box-sizing: border-box;
     }
@@ -363,7 +363,7 @@ st.markdown(
 
     /* Title/link outside heading remains centered and constrained */
     a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { background: rgba(255,43,43,0.03); text-decoration: none; }
+    a.article-link:hover { background: rgba(255,0,0,0.03); text-decoration: none; }
 
     /* --- Image centering and responsive behavior --- */
     .article-card .stImage,
