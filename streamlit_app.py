@@ -228,7 +228,7 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
 
-# ---------- Page config and modernized CSS ----------
+# ---------- Page config and modernized CSS (no large frames) ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown(
@@ -280,21 +280,11 @@ st.markdown(
     }
     .stSidebar h2 { color: var(--sidebar-text); margin-bottom: 6px; }
 
-    /* Frame behind each article (subtle gradient) */
-    .article-frame {
-      background: linear-gradient(180deg, rgba(255,240,246,0.95), rgba(255,245,248,0.98));
-      border-radius: 20px;
-      padding: 12px;
-      margin-bottom: 22px;
-      box-shadow: 0 8px 30px rgba(43,31,34,0.04);
-      border: 1px solid rgba(255,255,255,0.6);
-    }
-
-    /* Article card: elevated glassy surface */
+    /* Article card: elevated glassy surface (no large frame behind) */
     .article-card {
       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.98));
       border-radius: 14px;
-      padding: 18px;
+      padding: 20px;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
       transition: transform 0.14s ease, box-shadow 0.14s ease;
@@ -302,6 +292,7 @@ st.markdown(
       display:flex;
       flex-direction:column;
       justify-content:space-between;
+      margin-bottom: 20px;
     }
     .article-card:hover {
       transform: translateY(-6px);
@@ -487,7 +478,7 @@ summary_result = None
 if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=summary_length)
 
-# ---------- Render results (modernized visuals) ----------
+# ---------- Render results (modernized visuals, no large frames) ----------
 if summary_result:
     with st.expander("Summary of aggregated headlines"):
         st.markdown(f"**Summary:** {summary_result['summary']}")
@@ -501,8 +492,7 @@ else:
     if layout_choice == "3-up grid (3 per row)":
         st.markdown("<div class='three-col-grid'>", unsafe_allow_html=True)
         for idx, art in enumerate(filtered):
-            # Each article sits inside a frame which gives the layered background
-            st.markdown("<div class='article-frame'>", unsafe_allow_html=True)
+            # Article card only (no large frame)
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
             # Title with heading box
@@ -543,13 +533,11 @@ else:
             )
 
             st.markdown("</div>", unsafe_allow_html=True)  # close article-card
-            st.markdown("</div>", unsafe_allow_html=True)  # close article-frame
         st.markdown("</div>", unsafe_allow_html=True)
 
     else:  # Simple single-column list
         st.markdown("<div class='single-col-list'>", unsafe_allow_html=True)
         for idx, art in enumerate(filtered):
-            st.markdown("<div class='article-frame'>", unsafe_allow_html=True)
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
             st.markdown(
@@ -585,7 +573,6 @@ else:
             )
 
             st.markdown("</div>", unsafe_allow_html=True)  # close article-card
-            st.markdown("</div>", unsafe_allow_html=True)  # close article-frame
         st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Modernized UI applied: layered frames, glassy cards, refined typography, and consistent color accents.")
+st.caption("Updated: removed large frames between articles; cards are compact, modern, and aligned with the existing color palette.")
