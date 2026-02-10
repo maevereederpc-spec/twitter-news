@@ -7,14 +7,12 @@ from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import feedparser
 import requests
-from newspaper import Article
 from bs4 import BeautifulSoup
 import streamlit as st
 from datetime import datetime, timedelta, timezone
-import math
 from collections import Counter
 
-# Timezone support
+# ---------- Timezone support ----------
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
     ZONEINFO_AVAILABLE = True
@@ -34,11 +32,15 @@ NYT_FEEDS = {
 USER_AGENT = "NYT-RSS-Explorer/1.0"
 HEADERS = {"User-Agent": USER_AGENT}
 CACHE_TTL = 600
-POLITE_DELAY = 0.25
 DEFAULT_THUMB_WIDTH = 220
-MAX_AGGREGATE = 200  # safety cap to avoid extremely long pages
+MAX_AGGREGATE = 200
 
-# Defensive lxml check (warn if missing)
+# Grid settings: 3x3 paged layout
+GRID_ROWS = 3
+GRID_COLS = 3
+PAGE_SIZE = GRID_ROWS * GRID_COLS  # 9 items per page
+
+# Defensive lxml check (non-fatal)
 try:
     import lxml.html.clean  # noqa: F401
 except Exception:
@@ -77,36 +79,6 @@ def _extract_media(entry: dict) -> Optional[str]:
         if img and img.get("src"):
             return img.get("src")
     return None
-
-@st.cache_data(ttl=CACHE_TTL)
-def extract_article_text(url: str) -> Dict:
-    try:
-        art = Article(url)
-        art.download()
-        art.parse()
-        return {
-            "title": art.title,
-            "text": art.text,
-            "top_image": art.top_image,
-            "publish_date": art.publish_date.isoformat() if art.publish_date else None,
-            "authors": art.authors,
-            "url": url
-        }
-    except Exception:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            title = (soup.title.get_text(strip=True) if soup.title else None)
-            paragraphs = soup.select("article p") or soup.select("p")
-            text = "\n\n".join(p.get_text(strip=True) for p in paragraphs[:8])
-            og_image = soup.find("meta", property="og:image")
-            top_image = og_image["content"] if og_image and og_image.get("content") else None
-            meta_pub = soup.find("meta", {"name": "ptime"}) or soup.find("meta", {"itemprop": "datePublished"})
-            pub = meta_pub.get("content") if meta_pub and meta_pub.get("content") else None
-            return {"title": title, "text": text, "top_image": top_image, "publish_date": pub, "authors": [], "url": url}
-        except Exception:
-            return {}
 
 def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
     if not s:
@@ -227,14 +199,18 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
 # ---------- Session state ----------
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
+if "page_index" not in st.session_state:
+    st.session_state["page_index"] = 0
 
-# ---------- Page config and theme CSS ----------
+# ---------- Compact CSS: divide previous divider sizes by 3 ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
+# We take the previous compact sizes and divide key spacing/padding/gaps by ~3.
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
     :root{
       --bg:#fff7fb;
       --card:#ffffff;
@@ -245,77 +221,123 @@ st.markdown(
       --sidebar-black:#0b0b0b;
       --sidebar-text:#ffffff;
       --border: rgba(43,31,34,0.12);
-      --shadow: 0 10px 30px rgba(43,31,34,0.06);
+      --shadow: 0 4px 12px rgba(43,31,34,0.05);
       --action-pink: #ff8fc2;
       --action-pink-strong: #ff5fae;
     }
+
     html, body, [class*="css"]  {
-      background: var(--bg);
+      background: linear-gradient(180deg, var(--bg), #fffafc);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      line-height: 1.6;
+      line-height: 1.4;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
 
-    /* Sidebar */
+    /* Sidebar: slightly smaller padding */
     .stSidebar {
-      background: linear-gradient(180deg, var(--sidebar-black), #111111);
+      background: linear-gradient(180deg, #0b0b0b, #0f0f0f);
       color: var(--sidebar-text);
       border-right: 1px solid rgba(255,255,255,0.04);
-      padding-top: 18px;
+      padding: 10px 8px;
+      box-shadow: 0 4px 16px rgba(11,11,11,0.22);
     }
     .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
-      background: #0f0f0f;
+      background: rgba(255,255,255,0.03);
       color: var(--sidebar-text);
+      border-radius: 4px;
+      padding: 4px;
     }
 
-    /* Article card: aesthetic box */
+    /* Article card: further reduced sizes (divide previous compact by ~3) */
     .article-card {
-      background: linear-gradient(180deg, #ffffff, #fffafc);
-      border-radius: 14px;
-      padding: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.98));
+      border-radius: 6px;
+      padding: 4px;               /* was 12 -> now ~4 */
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      margin-bottom: 18px;
-      transition: transform 0.12s ease;
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+      min-height: 80px;          /* reduced */
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      margin-bottom: 3px;        /* reduced spacing between cards */
+      overflow: hidden;
     }
     .article-card:hover {
-      transform: translateY(-4px);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(43,31,34,0.06);
     }
 
     .heading-box {
       background: linear-gradient(90deg, rgba(255,182,213,0.18), rgba(255,143,194,0.08));
-      padding: 8px 12px;
-      border-radius: 8px;
+      padding: 2px 3px;          /* reduced */
+      border-radius: 6px;
       display: inline-block;
-      margin-bottom: 10px;
+      margin-bottom: 3px;
+      font-weight:700;
+      color: var(--text);
+      font-size: 0.88rem;
     }
 
-    .muted { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; display:block; }
-    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; }
+    .muted { color: var(--muted); font-size: 0.75rem; margin-bottom: 3px; display:block; }
+    .summary { color: #3b2a2f; font-size: 0.82rem; line-height: 1.25; margin-top: 4px; }
 
-    /* Buttons (Open anchor styled) */
-    .open-button {
+    /* Buttons (Open anchor styled) - very compact pill */
+    .open-button, .open-button:link, .open-button:visited, .open-button:hover, .open-button:active {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
-      color: #fff;
+      color: #fff !important;
       border: none;
-      padding: 8px 14px;
-      border-radius: 10px;
-      font-weight: 600;
+      padding: 4px 6px;         /* reduced */
+      border-radius: 999px;
+      font-weight: 700;
       cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
+      text-decoration: none !important;
+      display: inline-flex;
+      align-items:center;
+      gap:4px;
+      box-shadow: 0 4px 10px rgba(255,143,194,0.10);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+      font-size: 0.82rem;
     }
+    .open-button:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(255,143,194,0.10); }
 
     a.article-link { text-decoration: none; color: var(--text); }
     a.article-link:hover { text-decoration: underline; }
 
-    /* layout helpers */
-    .centered-img { text-align: center; margin-top: 8px; margin-bottom: 12px; }
-    .action-stack { display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:10px; }
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
-    .single-col-list { display: block; gap: 12px; }
+    /* layout helpers: gaps reduced by ~3 */
+    .centered-img { text-align: center; margin-top: 4px; margin-bottom: 4px; }
+    .action-stack { display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:6px; }
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; align-items: start; } /* gap reduced */
+    @media (max-width: 1200px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 760px) { .three-col-grid { grid-template-columns: 1fr; } }
+    .single-col-list { display: block; gap: 4px; }
+
+    /* compact header */
+    .top-header {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:6px;
+      margin-bottom:8px;
+    }
+    .brand {
+      display:flex;
+      align-items:center;
+      gap:6px;
+    }
+    .brand .logo {
+      width:28px;height:28px;border-radius:6px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));
+      display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:12px;
+      box-shadow: 0 4px 12px rgba(255,143,194,0.08);
+    }
+    .brand h1 { margin:0;font-size:0.95rem;font-weight:800;letter-spacing:0.2px; }
+
+    /* pager tiny */
+    .pager { display:flex;gap:6px;align-items:center;justify-content:center;margin:8px 0; font-size:0.85rem; }
+    .pager button { background:transparent;border:1px solid rgba(43,31,34,0.06);padding:4px 6px;border-radius:6px;cursor:pointer; font-size:0.85rem; }
+    .pager .current { font-weight:700; color:var(--muted); }
 
     </style>
     """,
@@ -333,8 +355,8 @@ with st.sidebar:
     st.markdown("Choose which NYT feed to view and how to display articles.")
     feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=0)
     num_articles = st.slider("Max articles to aggregate", 5, 200, 60)
-    image_width = st.number_input("Thumbnail width px", min_value=100, max_value=400, value=DEFAULT_THUMB_WIDTH, step=10)
-    layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=0)
+    image_width = st.number_input("Thumbnail width px", min_value=80, max_value=400, value=DEFAULT_THUMB_WIDTH, step=10)
+    layout_choice = st.selectbox("Layout", ["3x3 grid (paged)", "Simple list (single column)"], index=0)
     show_images = st.checkbox("Show images", value=True)
     use_extraction = st.checkbox("Fetch full article text", value=False)
     text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=0)
@@ -351,7 +373,7 @@ with st.sidebar:
         st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times may show in UTC or system timezone.")
     st.markdown("---")
     st.markdown("### Summarize")
-    summary_length = st.slider("Summary sentences", 1, 6, 3)
+    summary_length = st.slider("Summary sentences", 1, 6, 2)
     if st.button("Summarize headlines"):
         st.session_state["_summarize_now"] = True
 
@@ -363,12 +385,18 @@ if not st.session_state["show_sidebar"]:
 
 # ---------- Text size adjustments ----------
 if text_size == "Large":
-    st.markdown("<style> .article-card h3{font-size:1.15rem;} .summary{font-size:1.05rem;} </style>", unsafe_allow_html=True)
+    st.markdown("<style> .article-card h3{font-size:1.0rem;} .summary{font-size:0.9rem;} </style>", unsafe_allow_html=True)
 elif text_size == "Extra large":
-    st.markdown("<style> .article-card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
+    st.markdown("<style> .article-card h3{font-size:1.06rem;} .summary{font-size:0.94rem;} </style>", unsafe_allow_html=True)
 
 # ---------- Top header ----------
-st.markdown("<div class='heading-box'><h2 style='margin:0;'>NYT Dashboard</h2></div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='top-header'>"
+    "<div class='brand'><div class='logo'>NY</div><h1>NYT Dashboard</h1></div>"
+    "<div style='color:#6b4b5b;font-size:0.85rem;'>Curation · Clean · Readable</div>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
 # ---------- Fetch and aggregate ----------
 feed_url = NYT_FEEDS.get(feed_choice, NYT_FEEDS["Top Stories"])
@@ -428,7 +456,23 @@ summary_result = None
 if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=summary_length)
 
-# ---------- Render results (no bookmarks) ----------
+# ---------- Pagination helpers for 3x3 grid ----------
+total_items = len(filtered)
+total_pages = max(1, (total_items + PAGE_SIZE - 1) // PAGE_SIZE)
+page_index = st.session_state["page_index"]
+if page_index >= total_pages:
+    page_index = total_pages - 1
+    st.session_state["page_index"] = page_index
+
+def goto_prev():
+    if st.session_state["page_index"] > 0:
+        st.session_state["page_index"] -= 1
+
+def goto_next():
+    if st.session_state["page_index"] < total_pages - 1:
+        st.session_state["page_index"] += 1
+
+# ---------- Render results ----------
 if summary_result:
     with st.expander("Summary of aggregated headlines"):
         st.markdown(f"**Summary:** {summary_result['summary']}")
@@ -439,55 +483,82 @@ if summary_result:
 if not filtered:
     st.info("No articles match your filters.")
 else:
-    if layout_choice == "3-up grid (3 per row)":
-        cols = st.columns(3)
-        for idx, art in enumerate(filtered):
-            col = cols[idx % 3]
-            with col:
-                # Article card container
-                st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+    if layout_choice == "3x3 grid (paged)":
+        # Top pager
+        col_a, col_b, col_c = st.columns([1, 2, 1])
+        with col_b:
+            prev_disabled = st.session_state["page_index"] == 0
+            next_disabled = st.session_state["page_index"] >= total_pages - 1
+            if st.button("Prev", disabled=prev_disabled, key="top_prev"):
+                goto_prev()
+            st.markdown(f"<span style='font-size:0.85rem;color:#6b4b5b;'> Page {st.session_state['page_index']+1} / {total_pages} </span>", unsafe_allow_html=True)
+            if st.button("Next", disabled=next_disabled, key="top_next"):
+                goto_next()
 
-                # Title with heading box
+        # Compute slice for current page
+        start = st.session_state["page_index"] * PAGE_SIZE
+        end = start + PAGE_SIZE
+        page_items = filtered[start:end]
+
+        # Render grid container (3 columns)
+        st.markdown("<div class='three-col-grid'>", unsafe_allow_html=True)
+        for art in page_items:
+            st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+
+            # Title with heading box
+            st.markdown(
+                f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
+                unsafe_allow_html=True,
+            )
+
+            # Meta line (source + time)
+            meta = []
+            if art.get("source"):
+                meta.append(f"{art['source']}")
+            if art.get("published_dt"):
+                meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
+            if meta:
+                st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
+            # Centered image (compact)
+            if show_images and art.get("media"):
                 st.markdown(
-                    f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:6px;box-shadow:0 4px 12px rgba(43,31,34,0.06);'/></div>",
                     unsafe_allow_html=True,
                 )
 
-                # Meta line (source + time)
-                meta = []
-                if art.get("source"):
-                    meta.append(f"{art['source']}")
-                if art.get("published_dt"):
-                    meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
-                if meta:
-                    st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-
-                # Centered image
-                if show_images and art.get("media"):
-                    st.markdown(
-                        f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # Summary
-                if art.get("summary"):
-                    st.markdown(
-                        f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # Action stack: Open (anchor) centered, vertical spacing
+            # Summary (shorter for grid)
+            if art.get("summary"):
                 st.markdown(
-                    "<div class='action-stack'>"
-                    f"<a class='open-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer'>Open</a>"
-                    "</div>",
+                    f"<div class='summary'>{(art.get('summary') or '')[:160]}{'…' if len(art.get('summary') or '')>160 else ''}</div>",
                     unsafe_allow_html=True,
                 )
 
-                st.markdown("</div>", unsafe_allow_html=True)
+            # Action stack: Open (styled button) centered
+            st.markdown(
+                "<div class='action-stack'>"
+                f"<a class='open-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer'>Open</a>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("</div>", unsafe_allow_html=True)  # close article-card
+        st.markdown("</div>", unsafe_allow_html=True)  # close grid
+
+        # Bottom pager
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            prev_disabled = st.session_state["page_index"] == 0
+            next_disabled = st.session_state["page_index"] >= total_pages - 1
+            if st.button("Prev", disabled=prev_disabled, key="bottom_prev"):
+                goto_prev()
+            st.write(f"Page {st.session_state['page_index']+1} of {total_pages}")
+            if st.button("Next", disabled=next_disabled, key="bottom_next"):
+                goto_next()
 
     else:  # Simple single-column list
-        for idx, art in enumerate(filtered):
+        st.markdown("<div class='single-col-list'>", unsafe_allow_html=True)
+        for art in filtered:
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
             st.markdown(
@@ -505,13 +576,13 @@ else:
 
             if show_images and art.get("media"):
                 st.markdown(
-                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:6px;box-shadow:0 4px 12px rgba(43,31,34,0.06);'/></div>",
                     unsafe_allow_html=True,
                 )
 
             if art.get("summary"):
                 st.markdown(
-                    f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
+                    f"<div class='summary'>{(art.get('summary') or '')[:360]}{'…' if len(art.get('summary') or '')>360 else ''}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -522,6 +593,7 @@ else:
                 unsafe_allow_html=True,
             )
 
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)  # close article-card
+        st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Choose Top Stories or Politics, pick a layout, and click Open to go directly to the full NYT article.")
+st.caption("Compact 3×3 paged grid restored; spacing and paddings reduced further for a denser layout.")
