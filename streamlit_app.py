@@ -295,77 +295,55 @@ st.markdown(
       font-family: 'Inter', sans-serif;
     }
 
-    /* Refreshed article card and separators */
+    /* No boundaries between articles: flat, even rows */
     .article-card {
-      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.95));
-      border-radius: 14px;
-      padding: 18px 18px 16px 18px;
-      box-shadow: 0 8px 24px rgba(43,31,34,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
-      border: 1px solid rgba(43,31,34,0.06);
-      margin-bottom: 14px;
-      transition: transform 0.14s cubic-bezier(.2,.9,.2,1), box-shadow 0.14s ease;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      border-radius: 0;
+      padding: 12px 8px;
+      margin: 0;
+      transition: none;
       position: relative;
-      overflow: hidden;
-      backdrop-filter: blur(4px);
+      overflow: visible;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      min-height: 260px; /* helps equalize heights across columns */
+      height: 100%;
     }
 
-    /* Thin left accent bar for visual rhythm */
-    .article-card::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 6px;
-      background: linear-gradient(180deg, rgba(255,143,194,0.95), rgba(255,182,213,0.85));
-      border-top-left-radius: 14px;
-      border-bottom-left-radius: 14px;
-      box-shadow: 0 4px 12px rgba(255,143,194,0.06);
-      transform: translateX(-2px);
-    }
-
-    /* Hover lift and stronger shadow */
+    /* Remove any hover lift or visual separation */
     .article-card:hover {
-      transform: translateY(-6px);
-      box-shadow: 0 18px 40px rgba(43,31,34,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+      transform: none;
+      box-shadow: none;
     }
 
-    /* Subtle divider between content blocks inside a card */
-    .article-card .muted + .summary,
-    .article-card .heading-box + .muted {
-      border-top: 1px dashed rgba(43,31,34,0.04);
-      padding-top: 10px;
-      margin-top: 10px;
-    }
-
-    /* Heading box refinement */
+    /* Heading box kept subtle but without strong boundary */
     .heading-box {
-      background: linear-gradient(90deg, rgba(255,182,213,0.14), rgba(255,143,194,0.06));
-      padding: 10px 14px;
-      border-radius: 10px;
+      background: rgba(255,182,213,0.06);
+      padding: 8px 10px;
+      border-radius: 6px;
       display: inline-block;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       font-weight: 700;
       letter-spacing: -0.2px;
     }
 
     /* Muted meta styling */
-    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 8px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
+    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
 
-    /* Summary text with improved contrast and spacing */
-    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.65; margin-top: 8px; font-family: 'Inter', sans-serif; }
+    /* Summary text with slightly tighter spacing */
+    .summary { color: #3b2a2f; font-size: 0.96rem; line-height: 1.5; margin-top: 6px; font-family: 'Inter', sans-serif; }
 
-    /* Optional thin separators between cards when using single-column layout */
-    .single-col-list > .article-card:not(:last-child) { margin-bottom: 18px; }
-
-    /* Grid spacing refinement */
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
+    /* Ensure grid columns present even card heights visually */
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: stretch; }
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
 
     /* Make article links feel tappable without extra buttons */
     a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { text-decoration: none; background: rgba(255,143,194,0.06); }
+    a.article-link:hover { text-decoration: none; background: rgba(255,143,194,0.04); }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
