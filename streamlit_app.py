@@ -299,9 +299,7 @@ st.markdown(
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
     .single-col-list { display: block; gap: 12px; }
-    /* center image and action area */
     .centered-img { text-align: center; margin-top: 8px; margin-bottom: 8px; }
-    .action-anchor-button { text-align: center; display: inline-block; margin-bottom: 6px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -455,7 +453,10 @@ with tab1:
 
                     # Centered image
                     if show_images and art.get("media"):
-                        st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                            unsafe_allow_html=True,
+                        )
 
                     if art.get("summary"):
                         st.markdown(
@@ -463,18 +464,20 @@ with tab1:
                             unsafe_allow_html=True,
                         )
 
-                    # Action area centered: use three columns and place both controls in the middle column
+                    # Action area centered vertically: Open (anchor) then spacer then Save (st.button)
                     action_cols = st.columns([1, 2, 1])
                     with action_cols[1]:
-                        # Open anchor (same-tab redirect)
                         st.markdown(
-                            f"<div style='display:flex;justify-content:center;gap:18px;align-items:center;'>"
-                            f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
-                            f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
-                            f"</a>",
+                            f"<div style='display:flex;justify-content:center;align-items:center;'>"
+                            f"<a href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
+                            f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));"
+                            f"color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
+                            f"</a>"
+                            f"</div>",
                             unsafe_allow_html=True,
                         )
-                        # Save button (Streamlit) centered below the anchor
+                        # vertical spacer
+                        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
                         if st.button("★ Save", key=f"save_{idx}"):
                             toggle_bookmark(art)
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -496,7 +499,10 @@ with tab1:
 
                 # Centered image
                 if show_images and art.get("media"):
-                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                        unsafe_allow_html=True,
+                    )
 
                 if art.get("summary"):
                     st.markdown(
@@ -504,16 +510,19 @@ with tab1:
                         unsafe_allow_html=True,
                     )
 
-                # Action area centered
+                # Action area centered vertically
                 action_cols = st.columns([1, 2, 1])
                 with action_cols[1]:
                     st.markdown(
-                        f"<div style='display:flex;justify-content:center;gap:18px;align-items:center;'>"
-                        f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
-                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
-                        f"</a>",
+                        f"<div style='display:flex;justify-content:center;align-items:center;'>"
+                        f"<a href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
+                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));"
+                        f"color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
+                        f"</a>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
+                    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
                     if st.button("★ Save", key=f"save_list_{idx}"):
                         toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -534,7 +543,10 @@ with tab2:
                         unsafe_allow_html=True,
                     )
                     if art.get("media") and show_images:
-                        st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                            unsafe_allow_html=True,
+                        )
                     if art.get("summary"):
                         st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
                     if st.button("Remove", key=f"remove_{idx}"):
@@ -548,11 +560,14 @@ with tab2:
                     unsafe_allow_html=True,
                 )
                 if art.get("media") and show_images:
-                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                        unsafe_allow_html=True,
+                    )
                 if art.get("summary"):
                     st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
                 if st.button("Remove", key=f"remove_list_{idx}"):
                     toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Images are centered and action controls sit below each image for a cleaner, consistent layout.")
+st.caption("Images are centered and action controls are stacked and centered beneath each image for consistent spacing.")
