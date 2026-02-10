@@ -3,6 +3,8 @@ import streamlit as st
 # app.py
 import time
 import re
+import os
+import json
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import feedparser
@@ -14,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 import math
 from collections import Counter
 
-# Timezone support
+# ---------- Timezone support ----------
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
     ZONEINFO_AVAILABLE = True
@@ -37,6 +39,9 @@ CACHE_TTL = 600
 POLITE_DELAY = 0.25
 DEFAULT_THUMB_WIDTH = 220
 MAX_AGGREGATE = 200  # safety cap to avoid extremely long pages
+
+# Preferences persistence file
+PREFS_FILE = "user_prefs.json"
 
 # Defensive lxml check (warn if missing)
 try:
@@ -225,17 +230,39 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
     return {"summary": summary_paragraph, "top_keywords": top_keywords}
 
 # ---------- Session state ----------
+if "bookmarks" not in st.session_state:
+    st.session_state["bookmarks"] = {}
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
+if "page_index" not in st.session_state:
+    st.session_state["page_index"] = 0
 
-# ---------- Page config and modernized CSS (font + button changes) ----------
+# ---------- Preferences persistence helpers ----------
+def load_prefs() -> Dict:
+    if os.path.exists(PREFS_FILE):
+        try:
+            with open(PREFS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_prefs(prefs: Dict):
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, indent=2)
+    except Exception:
+        pass
+
+_saved_prefs = load_prefs()
+
+# ---------- Page config and theme CSS ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
-
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
     :root{
       --bg:#fff7fb;
       --card:#ffffff;
@@ -250,18 +277,12 @@ st.markdown(
       --action-pink: #ff8fc2;
       --action-pink-strong: #ff5fae;
     }
-
-    /* Modern font usage */
     html, body, [class*="css"]  {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
       line-height: 1.6;
-      -webkit-font-smoothing:antialiased;
-      -moz-osx-font-smoothing:grayscale;
     }
-
-    /* Sidebar */
     .stSidebar {
       background: linear-gradient(180deg, var(--sidebar-black), #111111);
       color: var(--sidebar-text);
@@ -281,7 +302,7 @@ st.markdown(
       padding: 18px;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      margin-bottom: 18px;
+      margin-bottom: 12px;
       transition: transform 0.12s ease;
       font-family: 'Inter', sans-serif;
     }
@@ -302,7 +323,7 @@ st.markdown(
     .muted { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; display:block; font-family: 'Inter', sans-serif; }
     .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; font-family: 'Inter', sans-serif; }
 
-    /* Open button: not a hyperlink, styled native button with modern font */
+    /* Open button: native button */
     .open-button {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
       color: #fff;
@@ -311,7 +332,6 @@ st.markdown(
       border-radius: 999px;
       font-weight: 700;
       cursor: pointer;
-      text-decoration: none;
       display: inline-flex;
       align-items:center;
       gap:8px;
@@ -342,39 +362,63 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- Sidebar content ----------
+# ---------- Sidebar content (with saved prefs) ----------
 COMMON_TZ = [
     "System", "UTC", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
     "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai", "Australia/Sydney"
 ]
 
+# Load defaults from saved prefs if available
+default_feed = _saved_prefs.get("feed_choice", "Top Stories")
+default_layout = _saved_prefs.get("layout_choice", "3-up grid (3 per row)")
+default_image_width = _saved_prefs.get("image_width", DEFAULT_THUMB_WIDTH)
+default_show_images = _saved_prefs.get("show_images", True)
+default_text_size = _saved_prefs.get("text_size", "Comfortable")
+default_tz = _saved_prefs.get("tz_choice", "System")
+default_num_articles = _saved_prefs.get("num_articles", 60)
+default_keyword = _saved_prefs.get("keyword", "")
+default_sort_by = _saved_prefs.get("sort_by", "Newest")
+default_date_from = _saved_prefs.get("date_from", (datetime.utcnow() - timedelta(days=7)).date())
+default_date_to = _saved_prefs.get("date_to", datetime.utcnow().date())
+
 with st.sidebar:
     st.markdown("## NYT Dashboard")
     st.markdown("Choose which NYT feed to view and how to display articles.")
-    feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=0)
-    num_articles = st.slider("Max articles to aggregate", 5, 200, 60)
-    image_width = st.number_input("Thumbnail width px", min_value=100, max_value=400, value=DEFAULT_THUMB_WIDTH, step=10)
-    layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=0)
-    show_images = st.checkbox("Show images", value=True)
-    use_extraction = st.checkbox("Fetch full article text", value=False)
-    text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=0)
+    feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=["Top Stories", "Politics"].index(default_feed))
+    num_articles = st.slider("Max articles to aggregate", 5, 200, int(default_num_articles))
+    image_width = st.number_input("Thumbnail width px", min_value=80, max_value=400, value=int(default_image_width), step=10)
+    layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=["3-up grid (3 per row)", "Simple list (single column)"].index(default_layout))
+    show_images = st.checkbox("Show images", value=default_show_images)
+    use_extraction = st.checkbox("Fetch full article text", value=_saved_prefs.get("use_extraction", False))
+    text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=["Comfortable", "Large", "Extra large"].index(default_text_size))
     st.markdown("---")
     st.markdown("### Filters")
-    keyword = st.text_input("Keyword filter")
-    date_from = st.date_input("From", value=(datetime.utcnow() - timedelta(days=7)).date())
-    date_to = st.date_input("To", value=datetime.utcnow().date())
-    sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Source A→Z"], index=0)
+    keyword = st.text_input("Keyword filter", value=default_keyword)
+    date_from = st.date_input("From", value=default_date_from)
+    date_to = st.date_input("To", value=default_date_to)
+    sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Source A→Z"], index=["Newest", "Oldest", "Source A→Z"].index(default_sort_by))
     st.markdown("---")
     st.markdown("### Timezone")
-    tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=0)
-    if tz_choice != "System" and not ZONEINFO_AVAILABLE and 'pytz' not in globals():
-        st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times will show in UTC or system timezone.")
+    tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=COMMON_TZ.index(default_tz) if default_tz in COMMON_TZ else 0)
     st.markdown("---")
-    st.markdown("### Summarize")
-    st.write("Create a short summary of the aggregated headlines and short summaries.")
-    summary_length = st.slider("Summary sentences", 1, 6, 3)
-    if st.button("Summarize headlines"):
-        st.session_state["_summarize_now"] = True
+    st.markdown("### Preferences")
+    if st.button("Save preferences"):
+        prefs_to_save = {
+            "feed_choice": feed_choice,
+            "num_articles": num_articles,
+            "image_width": image_width,
+            "layout_choice": layout_choice,
+            "show_images": show_images,
+            "use_extraction": use_extraction,
+            "text_size": text_size,
+            "keyword": keyword,
+            "date_from": str(date_from),
+            "date_to": str(date_to),
+            "sort_by": sort_by,
+            "tz_choice": tz_choice,
+        }
+        save_prefs(prefs_to_save)
+        st.success("Preferences saved to user_prefs.json")
 
 # ---------- Sidebar toggle ----------
 show_sidebar = st.checkbox("Show sidebar", value=st.session_state["show_sidebar"])
@@ -450,7 +494,7 @@ filtered = filtered[:cap]
 summarize_now = st.session_state.pop("_summarize_now", False)
 summary_result = None
 if summarize_now:
-    summary_result = summarize_articles(filtered, max_sentences=summary_length)
+    summary_result = summarize_articles(filtered, max_sentences=3)
 
 # ---------- Long-scroll rendering (either grid or single-column list) ----------
 tab1, tab2 = st.tabs(["Results", "Bookmarks"])
@@ -560,7 +604,6 @@ with tab2:
                     if art.get("summary"):
                         st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
                     if st.button("Remove", key=f"remove_{idx}"):
-                        # bookmark removal helper (if bookmarks exist)
                         if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
                             del st.session_state["bookmarks"][art.get("link")]
                     st.markdown("</div>", unsafe_allow_html=True)
