@@ -297,16 +297,6 @@ st.markdown(
 
     /* --- Flat, boundaryless cards with even column heights --- */
 
-    /* Make the page background and base variables unchanged */
-    :root{
-      --bg:#fff7fb;
-      --card:#ffffff;
-      --muted:#8b7a80;
-      --accent:#ffb6d5;
-      --accent-strong:#ff8fc2;
-      --text:#2b1f22;
-    }
-
     /* Container grid: zero gap so cards sit flush; columns stretch to equal height */
     .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: stretch; }
 
@@ -329,6 +319,8 @@ st.markdown(
       flex-direction: column;
       justify-content: flex-start;
       height: 100%;
+      flex: 1 1 auto;
+      min-height: 0; /* important for flex children to allow proper shrinking */
     }
 
     /* Ensure no hover lift or visual separation */
@@ -349,23 +341,37 @@ st.markdown(
 
     /* Meta and summary spacing tightened */
     .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
-    .summary { color: #3b2a2f; font-size: 0.96rem; line-height: 1.45; margin-top: 6px; font-family: 'Inter', sans-serif; }
+    .summary {
+      color: #3b2a2f;
+      font-size: 0.96rem;
+      line-height: 1.45;
+      margin-top: 6px;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      /* allow summary to take remaining space but not force column growth */
+      flex: 1 1 auto;
+      min-height: 0;
+    }
 
     /* Image handling: constrain height, preserve aspect, and avoid expanding card */
     .article-card img, .article-card > img, .article-card img[src] {
       width: 100%;
-      max-height: 140px;
+      max-height: 140px; /* adjust as needed */
       object-fit: cover;
       display: block;
       margin: 8px 0;
       border-radius: 6px;
+      flex: 0 0 auto;
     }
 
     /* If you use st.image (which wraps images in <img>), target the wrapper too */
-    .article-card .stImage, .article-card .element-container img {
+    .article-card .stImage img, .article-card .element-container img {
       width: 100%;
       max-height: 140px;
       object-fit: cover;
+      display: block;
+      border-radius: 6px;
+      flex: 0 0 auto;
     }
 
     /* Make the title link tappable but keep it boundaryless */
@@ -378,13 +384,29 @@ st.markdown(
       height: 100%;
       display: flex;
       flex-direction: column;
+      min-height: 0;
     }
     [data-testid="column"] {
       height: 100%;
+      min-height: 0;
     }
     /* Additional fallback: target common Streamlit column wrapper patterns */
     .stColumns > div, .css-1lcbmhc > div {
       height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    /* Ensure the immediate wrapper inside a column lets the article-card stretch */
+    [data-testid="column"] > div > div {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .stColumns > div > div, .css-1lcbmhc > div > div {
+      flex: 1 1 auto;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
