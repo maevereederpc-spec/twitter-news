@@ -259,6 +259,7 @@ _saved_prefs = load_prefs()
 # ---------- Page config and theme CSS ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
+# --- REPLACED CSS: heading pinned to top, content-below-heading wrapper, centered images, 12-line summary ---
 st.markdown(
     """
     <style>
@@ -317,11 +318,11 @@ st.markdown(
       margin: 0;
       transition: none;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
       display: flex;
       flex-direction: column;
-      justify-content: flex-start; /* keep content at top so headings align */
-      align-items: stretch;        /* allow heading box to be full width and align across row */
+      justify-content: flex-start;
+      align-items: stretch;
       text-align: center;
       height: 100%;
       flex: 1 1 auto;
@@ -329,33 +330,44 @@ st.markdown(
     }
     .article-card:hover { transform: none; box-shadow: none; }
 
-    /* --- Heading box: fixed visual height so all headings align across the row --- */
-    /* Adjust min-height to match the maximum number of title lines you want to allow.
-       Here we reserve space for up to ~3 lines of title comfortably; increase if needed. */
-    .heading-box {
+    /* --- Heading box: absolutely positioned so all headings align across the row --- */
+    .article-card .heading-box {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 5;
       background: linear-gradient(180deg, var(--accent), var(--accent-strong));
       color: #ffffff;
       padding: 10px 12px;
       border-radius: 8px;
       display: flex;
-      align-items: center;       /* vertically center title inside the heading box */
-      justify-content: center;   /* horizontally center title */
-      width: 100%;
-      margin-bottom: 8px;
+      align-items: center;
+      justify-content: center;
       font-weight: 800;
       letter-spacing: -0.2px;
       box-shadow: 0 6px 18px rgba(255,143,194,0.12);
       border: 1px solid rgba(255,143,194,0.12);
-      min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
+      min-height: calc(1.15em * 3.2);
       box-sizing: border-box;
     }
-    .heading-box a.article-link, .heading-box strong {
+    .article-card .heading-box a.article-link, .article-card .heading-box strong {
       color: #ffffff;
       text-decoration: none;
       display: block;
       text-align: center;
       line-height: 1.15;
       word-break: break-word;
+    }
+
+    /* Reserve space at top of card equal to heading height + gap so content below doesn't overlap */
+    .article-card .content-below-heading {
+      padding-top: calc(12px + 10px + (1.15em * 3.2) + 8px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      box-sizing: border-box;
     }
 
     /* Title/link outside heading remains centered and constrained */
@@ -403,8 +415,7 @@ st.markdown(
       overflow: hidden;
       display: -webkit-box;
       -webkit-box-orient: vertical;
-      -webkit-line-clamp: 12; /* show up to 12 lines visually */
-      /* Reserve space for 12 lines even if content is shorter */
+      -webkit-line-clamp: 12;
       min-height: calc(1.45em * 12);
       text-align: center;
       flex: 0 0 auto;
@@ -418,14 +429,14 @@ st.markdown(
     /* Small spacing for single-column layout only */
     @media (max-width: 700px) {
       .article-card { padding: 10px; }
-      .heading-box { min-height: calc(1.15em * 2.6); } /* slightly smaller on narrow screens */
+      .article-card .heading-box { min-height: calc(1.15em * 2.6); left:10px; right:10px; top:10px; }
+      .article-card .content-below-heading { padding-top: calc(10px + 8px + (1.15em * 2.6) + 6px); }
     }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
     .brand { display:flex; align-items:center; gap:12px; font-family: 'Inter', sans-serif; }
     .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -566,7 +577,6 @@ if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=3)
 
 # ---------- Long-scroll rendering (Results only) ----------
-# Open button removed per request.
 with st.container():
     if summary_result:
         with st.expander("Summary of aggregated headlines"):
@@ -583,11 +593,18 @@ with st.container():
             for idx, art in enumerate(filtered):
                 col = cols[idx % 3]
                 with col:
+                    # Outer card
                     st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+
+                    # Heading pinned to top (absolute)
                     st.markdown(
                         f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
                     )
+
+                    # Content below heading (images, meta, summary)
+                    st.markdown("<div class='content-below-heading'>", unsafe_allow_html=True)
+
                     meta = []
                     if art.get("source"):
                         meta.append(f"{art['source']}")
@@ -595,27 +612,33 @@ with st.container():
                         meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                     if meta:
                         st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
                     if show_images and art.get("media"):
                         try:
-                            # st.image will render an <img> inside wrappers; CSS centers it and now images are uncapped
                             st.image(art["media"], width=int(image_width))
                         except Exception:
                             pass
+
                     if art.get("summary"):
                         st.markdown(
                             f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
                             unsafe_allow_html=True,
                         )
 
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)  # close content-below-heading
+                    st.markdown("</div>", unsafe_allow_html=True)  # close article-card
 
         else:  # Simple single-column list
             for idx, art in enumerate(filtered):
                 st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+
                 st.markdown(
                     f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
+
+                st.markdown("<div class='content-below-heading'>", unsafe_allow_html=True)
+
                 meta = []
                 if art.get("source"):
                     meta.append(f"{art['source']}")
@@ -634,6 +657,7 @@ with st.container():
                         unsafe_allow_html=True,
                     )
 
-                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)  # close content-below-heading
+                st.markdown("</div>", unsafe_allow_html=True)  # close article-card
 
 st.caption("The UI uses a modern Inter font across headings and body.")
