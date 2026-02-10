@@ -329,17 +329,27 @@ st.markdown(
       box-shadow: none;
     }
 
-    /* Heading box: subtle background only, no strong boundary */
+    /* Heading box: stronger, more noticeable and matched to NY logo gradient */
     .heading-box {
-      background: rgba(255,182,213,0.04);
-      padding: 8px 10px;
-      border-radius: 6px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+      color: #ffffff;
+      padding: 10px 12px;
+      border-radius: 8px;
       display: inline-block;
-      margin-bottom: 6px;
-      font-weight: 700;
+      margin-bottom: 8px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      box-shadow: 0 6px 18px rgba(255,143,194,0.12);
+      border: 1px solid rgba(255,143,194,0.12);
     }
 
-    /* Meta and summary spacing tightened */
+    /* Slightly increase title contrast inside heading */
+    .heading-box a.article-link, .heading-box strong {
+      color: #ffffff;
+      text-decoration: none;
+    }
+
+    /* Muted and summary spacing tightened */
     .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
     .summary {
       color: #3b2a2f;
@@ -348,7 +358,6 @@ st.markdown(
       margin-top: 6px;
       font-family: 'Inter', sans-serif;
       overflow: hidden;
-      /* allow summary to take remaining space but not force column growth */
       flex: 1 1 auto;
       min-height: 0;
     }
