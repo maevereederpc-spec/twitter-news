@@ -391,7 +391,7 @@ st.markdown(
       text-align: center !important;
     }
 
-    /* Keep summary centered and reserve 4 lines of space */
+    /* Keep summary centered and reserve 8 lines of space */
     .summary {
       color: #3b2a2f;
       font-size: 0.96rem;
@@ -401,8 +401,9 @@ st.markdown(
       overflow: hidden;
       display: -webkit-box;
       -webkit-box-orient: vertical;
-      -webkit-line-clamp: 4;
-      min-height: calc(1.45em * 4);
+      -webkit-line-clamp: 8; /* show up to 8 lines visually */
+      /* Reserve space for 8 lines even if content is shorter */
+      min-height: calc(1.45em * 8);
       text-align: center;
       flex: 0 0 auto;
       width: 100%;
