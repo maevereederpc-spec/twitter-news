@@ -398,7 +398,7 @@ st.markdown(
 
     /* --- Summary: reserve 12 lines of space and center --- */
     .summary {
-      color: #3b2a3b;
+      color: #ffffff; /* changed to white per request */
       font-size: 0.96rem;
       line-height: 1.45;
       margin-top: 6px;
