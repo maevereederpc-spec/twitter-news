@@ -1,30 +1,34 @@
 import streamlit as st
 
 # app.py
-import time
-import re
+"""
+NYT Dashboard — preferences saved, News + Congress tabs,
+no "Open" buttons, no Bookmarks tab, even spacing in 3x3 grid.
+"""
+
 import os
 import json
+import re
 from typing import List, Dict, Optional
-from urllib.parse import urlparse
+from datetime import datetime, timedelta, timezone
+from collections import Counter
+
 import feedparser
 import requests
-from newspaper import Article
 from bs4 import BeautifulSoup
+
 import streamlit as st
-from datetime import datetime, timedelta, timezone
-import math
-from collections import Counter
+import altair as alt
+import pandas as pd
 
 # ---------- Timezone support ----------
 try:
-    from zoneinfo import ZoneInfo  # Python 3.9+
+    from zoneinfo import ZoneInfo
     ZONEINFO_AVAILABLE = True
 except Exception:
     ZONEINFO_AVAILABLE = False
     try:
-        import pytz  # fallback
-        ZoneInfo = None
+        import pytz  # type: ignore
     except Exception:
         pytz = None
 
@@ -33,24 +37,31 @@ NYT_FEEDS = {
     "Top Stories": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
     "Politics": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
 }
-USER_AGENT = "NYT-RSS-Explorer/1.0"
-HEADERS = {"User-Agent": USER_AGENT}
-CACHE_TTL = 600
-POLITE_DELAY = 0.25
-DEFAULT_THUMB_WIDTH = 220
-MAX_AGGREGATE = 200  # safety cap to avoid extremely long pages
-
-# Preferences persistence file
 PREFS_FILE = "user_prefs.json"
+CACHE_TTL = 600
+DEFAULT_THUMB_WIDTH = 220
+MAX_AGGREGATE = 200
 
-# Defensive lxml check (warn if missing)
-try:
-    import lxml.html.clean  # noqa: F401
-except Exception:
-    import warnings
-    warnings.warn("lxml.html.clean not available. Install lxml_html_clean or pin lxml<5 for full newspaper3k support.")
+# ---------- Preferences helpers ----------
+def load_prefs() -> Dict:
+    if os.path.exists(PREFS_FILE):
+        try:
+            with open(PREFS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
-# ---------- Helpers: RSS and extraction ----------
+def save_prefs(prefs: Dict):
+    try:
+        with open(PREFS_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, indent=2)
+    except Exception:
+        pass
+
+_saved_prefs = load_prefs()
+
+# ---------- RSS helpers ----------
 @st.cache_data(ttl=CACHE_TTL)
 def fetch_rss(url: str) -> List[Dict]:
     parsed = feedparser.parse(url)
@@ -59,11 +70,11 @@ def fetch_rss(url: str) -> List[Dict]:
         items.append({
             "title": entry.get("title"),
             "link": entry.get("link"),
-            "published": entry.get("published"),
             "summary": entry.get("summary") or entry.get("description"),
-            "source": parsed.feed.get("title"),
+            "published": entry.get("published"),
             "media": _extract_media(entry),
-            "published_struct": entry.get("published_parsed")
+            "source": parsed.feed.get("title"),
+            "published_struct": entry.get("published_parsed"),
         })
     return items
 
@@ -82,36 +93,6 @@ def _extract_media(entry: dict) -> Optional[str]:
         if img and img.get("src"):
             return img.get("src")
     return None
-
-@st.cache_data(ttl=CACHE_TTL)
-def extract_article_text(url: str) -> Dict:
-    try:
-        art = Article(url)
-        art.download()
-        art.parse()
-        return {
-            "title": art.title,
-            "text": art.text,
-            "top_image": art.top_image,
-            "publish_date": art.publish_date.isoformat() if art.publish_date else None,
-            "authors": art.authors,
-            "url": url
-        }
-    except Exception:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            title = (soup.title.get_text(strip=True) if soup.title else None)
-            paragraphs = soup.select("article p") or soup.select("p")
-            text = "\n\n".join(p.get_text(strip=True) for p in paragraphs[:8])
-            og_image = soup.find("meta", property="og:image")
-            top_image = og_image["content"] if og_image and og_image.get("content") else None
-            meta_pub = soup.find("meta", {"name": "ptime"}) or soup.find("meta", {"itemprop": "datePublished"})
-            pub = meta_pub.get("content") if meta_pub and meta_pub.get("content") else None
-            return {"title": title, "text": text, "top_image": top_image, "publish_date": pub, "authors": [], "url": url}
-        except Exception:
-            return {}
 
 def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
     if not s:
@@ -143,7 +124,7 @@ def to_timezone(dt: Optional[datetime], tz_name: str) -> Optional[datetime]:
     try:
         if ZONEINFO_AVAILABLE:
             return dt.astimezone(ZoneInfo(tz_name))
-        elif 'pytz' in globals() and pytz:
+        elif pytz:
             return dt.astimezone(pytz.timezone(tz_name))
     except Exception:
         return dt.astimezone(timezone.utc)
@@ -157,158 +138,58 @@ def format_dt_for_display(dt: Optional[datetime], tz_name: str) -> str:
     tz_abbr = converted.tzname() or ""
     return converted.strftime(f"%Y-%m-%d %H:%M {tz_abbr}")
 
-# ---------- Simple extractive summarizer ----------
-STOPWORDS = {
-    "the","and","to","of","a","in","for","on","with","is","as","by","at","from","that","it","be","are","was","an","has","have","its","this","new","will","after","over","about","more","up","into","than","but","not","who","which"
-}
-def tokenize(text: str) -> List[str]:
-    text = text.lower()
-    tokens = re.findall(r"[a-zA-Z0-9']{2,}", text)
-    return tokens
-def build_freq_map(texts: List[str]) -> Counter:
-    freq = Counter()
-    for t in texts:
-        for w in tokenize(t):
-            if w in STOPWORDS:
-                continue
-            freq[w] += 1
-    if not freq:
-        return freq
-    maxf = max(freq.values())
-    for k in list(freq.keys()):
-        freq[k] = freq[k] / maxf
-    return freq
-def split_sentences(text: str) -> List[str]:
-    parts = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [p.strip() for p in parts if p.strip()]
-def score_sentence(sent: str, freq_map: Counter) -> float:
-    tokens = tokenize(sent)
-    if not tokens:
-        return 0.0
-    score = 0.0
-    for t in tokens:
-        score += freq_map.get(t, 0.0)
-    return score / (len(tokens) ** 0.2)
-def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
-    if not articles:
-        return {"summary": "No articles to summarize.", "top_keywords": []}
-    pool_texts = []
-    for a in articles:
-        title = a.get("title") or ""
-        summary = a.get("summary") or ""
-        pool_texts.append(title)
-        for s in split_sentences(summary)[:3]:
-            pool_texts.append(s)
-    freq = build_freq_map(pool_texts)
-    candidates = []
-    for t in pool_texts:
-        for s in split_sentences(t):
-            candidates.append(s)
-    scored = []
-    seen = set()
-    for s in candidates:
-        key = s.lower()
-        if key in seen or len(s) < 20:
-            continue
-        seen.add(key)
-        scored.append((score_sentence(s, freq), s))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    chosen = []
-    for score, sent in scored:
-        if len(chosen) >= max_sentences:
-            break
-        low = sent.lower()
-        if any(low in c.lower() or c.lower() in low for c in chosen):
-            continue
-        chosen.append(sent)
-    if not chosen:
-        for a in articles[:max_sentences]:
-            if a.get("title"):
-                chosen.append(a["title"])
-    summary_paragraph = " ".join(chosen)
-    top_keywords = freq.most_common(8)
-    return {"summary": summary_paragraph, "top_keywords": top_keywords}
-
-# ---------- Session state ----------
-if "bookmarks" not in st.session_state:
-    st.session_state["bookmarks"] = {}
-if "show_sidebar" not in st.session_state:
-    st.session_state["show_sidebar"] = True
-if "page_index" not in st.session_state:
-    st.session_state["page_index"] = 0
-
-# ---------- Preferences persistence helpers ----------
-def load_prefs() -> Dict:
-    if os.path.exists(PREFS_FILE):
-        try:
-            with open(PREFS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_prefs(prefs: Dict):
-    try:
-        with open(PREFS_FILE, "w", encoding="utf-8") as f:
-            json.dump(prefs, f, indent=2)
-    except Exception:
-        pass
-
-_saved_prefs = load_prefs()
-
-# ---------- Page config and theme CSS ----------
+# ---------- Page setup and styling ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
     :root{
       --bg:#fff7fb;
-      --card:#ffffff;
+      --text:#2b1f22;
       --muted:#8b7a80;
       --accent:#ffb6d5;
       --accent-strong:#ff8fc2;
-      --text:#2b1f22;
-      --sidebar-black:#0b0b0b;
-      --sidebar-text:#ffffff;
       --border: rgba(43,31,34,0.12);
       --shadow: 0 10px 30px rgba(43,31,34,0.06);
-      --action-pink: #ff8fc2;
-      --action-pink-strong: #ff5fae;
     }
-    html, body, [class*="css"]  {
+
+    html, body, [class*="css"] {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      line-height: 1.6;
-    }
-    .stSidebar {
-      background: linear-gradient(180deg, var(--sidebar-black), #111111);
-      color: var(--sidebar-text);
-      border-right: 1px solid rgba(255,255,255,0.04);
-      padding-top: 18px;
-    }
-    .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
-      background: #0f0f0f;
-      color: var(--sidebar-text);
-      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
 
-    /* Article card: aesthetic box */
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+    .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
+
+    /* Grid: ensure even spacing and equal-height cards */
+    .three-col-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      align-items: stretch; /* stretch cards to equal height */
+    }
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+
     .article-card {
       background: linear-gradient(180deg, #ffffff, #fffafc);
       border-radius: 14px;
       padding: 18px;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      margin-bottom: 12px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between; /* keeps spacing even inside card */
+      height:100%; /* important for equal-height behavior */
       transition: transform 0.12s ease;
-      font-family: 'Inter', sans-serif;
     }
-    .article-card:hover {
-      transform: translateY(-4px);
-    }
+    .article-card:hover { transform: translateY(-4px); }
 
     .heading-box {
       background: linear-gradient(90deg, rgba(255,182,213,0.18), rgba(255,143,194,0.08));
@@ -316,64 +197,30 @@ st.markdown(
       border-radius: 8px;
       display: inline-block;
       margin-bottom: 10px;
-      font-weight: 700;
-      font-family: 'Inter', sans-serif;
+      font-weight:700;
     }
 
-    .muted { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; display:block; font-family: 'Inter', sans-serif; }
-    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; font-family: 'Inter', sans-serif; }
+    .centered-img { text-align:center; margin:8px 0; }
+    .summary { color:#3b2a2f; line-height:1.5; margin-top:8px; }
 
-    /* Open button: native button */
-    .open-button {
-      background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
-      color: #fff;
-      border: none;
-      padding: 10px 16px;
-      border-radius: 999px;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items:center;
-      gap:8px;
-      font-family: 'Inter', sans-serif;
-      font-size: 0.95rem;
-      box-shadow: 0 8px 20px rgba(255,143,194,0.12);
-    }
-    .open-button:hover { transform: translateY(-2px); }
-
-    a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; }
-    a.article-link:hover { text-decoration: underline; }
-
-    /* layout helpers */
-    .centered-img { text-align: center; margin-top: 8px; margin-bottom: 12px; }
-    .action-stack { display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:10px; }
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
-    .single-col-list { display: block; gap: 12px; }
-
-    /* header modernized */
-    .top-header { margin-bottom: 12px; }
-    .brand { display:flex; align-items:center; gap:12px; font-family: 'Inter', sans-serif; }
-    .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
+    /* remove open button styles (no open button) */
 
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------- Sidebar content (with saved prefs) ----------
+# ---------- Sidebar (preferences) ----------
 COMMON_TZ = [
     "System", "UTC", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
     "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai", "Australia/Sydney"
 ]
 
-# Load defaults from saved prefs if available
+# Load defaults from saved prefs
 default_feed = _saved_prefs.get("feed_choice", "Top Stories")
 default_layout = _saved_prefs.get("layout_choice", "3-up grid (3 per row)")
 default_image_width = _saved_prefs.get("image_width", DEFAULT_THUMB_WIDTH)
 default_show_images = _saved_prefs.get("show_images", True)
-default_text_size = _saved_prefs.get("text_size", "Comfortable")
 default_tz = _saved_prefs.get("tz_choice", "System")
 default_num_articles = _saved_prefs.get("num_articles", 60)
 default_keyword = _saved_prefs.get("keyword", "")
@@ -383,14 +230,11 @@ default_date_to = _saved_prefs.get("date_to", datetime.utcnow().date())
 
 with st.sidebar:
     st.markdown("## NYT Dashboard")
-    st.markdown("Choose which NYT feed to view and how to display articles.")
     feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=["Top Stories", "Politics"].index(default_feed))
     num_articles = st.slider("Max articles to aggregate", 5, 200, int(default_num_articles))
     image_width = st.number_input("Thumbnail width px", min_value=80, max_value=400, value=int(default_image_width), step=10)
     layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=["3-up grid (3 per row)", "Simple list (single column)"].index(default_layout))
     show_images = st.checkbox("Show images", value=default_show_images)
-    use_extraction = st.checkbox("Fetch full article text", value=_saved_prefs.get("use_extraction", False))
-    text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=["Comfortable", "Large", "Extra large"].index(default_text_size))
     st.markdown("---")
     st.markdown("### Filters")
     keyword = st.text_input("Keyword filter", value=default_keyword)
@@ -409,8 +253,6 @@ with st.sidebar:
             "image_width": image_width,
             "layout_choice": layout_choice,
             "show_images": show_images,
-            "use_extraction": use_extraction,
-            "text_size": text_size,
             "keyword": keyword,
             "date_from": str(date_from),
             "date_to": str(date_to),
@@ -420,25 +262,13 @@ with st.sidebar:
         save_prefs(prefs_to_save)
         st.success("Preferences saved to user_prefs.json")
 
-# ---------- Sidebar toggle ----------
-show_sidebar = st.checkbox("Show sidebar", value=st.session_state["show_sidebar"])
-st.session_state["show_sidebar"] = show_sidebar
-if not st.session_state["show_sidebar"]:
-    st.markdown("<style>[data-testid='stSidebar'] { display: none; }</style>", unsafe_allow_html=True)
-
-# ---------- Text size adjustments ----------
-if text_size == "Large":
-    st.markdown("<style> .article-card h3{font-size:1.15rem;} .summary{font-size:1.05rem;} </style>", unsafe_allow_html=True)
-elif text_size == "Extra large":
-    st.markdown("<style> .article-card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
-
-# ---------- Top header ----------
+# ---------- Header ----------
 st.markdown(
-    "<div class='top-header'><div class='brand'><div class='logo'>NY</div><div style='font-weight:700;font-size:1.05rem;'>NYT Dashboard</div></div></div>",
+    "<div class='brand'><div class='logo'>NY</div><div style='font-weight:700;font-size:1.05rem;'>NYT Dashboard</div></div>",
     unsafe_allow_html=True,
 )
 
-# ---------- Fetch and aggregate ----------
+# ---------- Fetch and prepare articles ----------
 feed_url = NYT_FEEDS.get(feed_choice, NYT_FEEDS["Top Stories"])
 rss_items = []
 try:
@@ -490,140 +320,110 @@ else:
 cap = min(num_articles, MAX_AGGREGATE)
 filtered = filtered[:cap]
 
-# ---------- Summarization trigger ----------
-summarize_now = st.session_state.pop("_summarize_now", False)
-summary_result = None
-if summarize_now:
-    summary_result = summarize_articles(filtered, max_sentences=3)
+# ---------- Tabs: News + Congress (Bookmarks removed) ----------
+tab_news, tab_congress = st.tabs(["News", "Congress"])
 
-# ---------- Long-scroll rendering (either grid or single-column list) ----------
-tab1, tab2 = st.tabs(["Results", "Bookmarks"])
-with tab1:
-    if summary_result:
-        with st.expander("Summary of aggregated headlines"):
-            st.markdown(f"**Summary:** {summary_result['summary']}")
-            if summary_result["top_keywords"]:
-                kw_line = ", ".join(f"{k} ({round(v,2)})" for k, v in summary_result["top_keywords"])
-                st.markdown(f"**Top keywords:** {kw_line}")
-
+# NEWS tab: 3x3 grid with even spacing
+with tab_news:
     if not filtered:
         st.info("No articles match your filters.")
     else:
-        if layout_choice == "3-up grid (3 per row)":
-            cols = st.columns(3)
-            for idx, art in enumerate(filtered):
-                col = cols[idx % 3]
-                with col:
-                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
-                        unsafe_allow_html=True,
-                    )
-                    meta = []
-                    if art.get("source"):
-                        meta.append(f"{art['source']}")
-                    if art.get("published_dt"):
-                        meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
-                    if meta:
-                        st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-                    if show_images and art.get("media"):
-                        try:
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
-                    if art.get("summary"):
-                        st.markdown(
-                            f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
-                            unsafe_allow_html=True,
-                        )
-
-                    # Open button: native button element that navigates same-tab (no hyperlink text)
-                    st.markdown(
-                        f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
-                        f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-        else:  # Simple single-column list
-            for idx, art in enumerate(filtered):
+        if layout_choice.startswith("3-up"):
+            # Render grid container; each card stretches to equal height
+            st.markdown("<div class='three-col-grid'>", unsafe_allow_html=True)
+            for art in filtered:
                 st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
-                    unsafe_allow_html=True,
-                )
+
+                # Title (linked)
+                title_html = f"<div class='heading-box'><a href='{art.get('link')}' target='_blank' rel='noopener noreferrer' style='color:inherit;text-decoration:none;'><strong>{art.get('title') or ''}</strong></a></div>"
+                st.markdown(title_html, unsafe_allow_html=True)
+
+                # Meta
                 meta = []
                 if art.get("source"):
-                    meta.append(f"{art['source']}")
+                    meta.append(art["source"])
                 if art.get("published_dt"):
                     meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                 if meta:
-                    st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='color:{_saved_prefs.get('muted_color','#8b7a80')};font-size:0.9rem;margin-bottom:8px;'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
+                # Image (centered)
                 if show_images and art.get("media"):
-                    try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
-                if art.get("summary"):
-                    st.markdown(
-                        f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
 
-                st.markdown(
-                    f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
-                    f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                # Summary
+                if art.get("summary"):
+                    st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:240]}{'…' if len(art.get('summary') or '')>240 else ''}</div>", unsafe_allow_html=True)
+
+                # Footer area (keeps spacing even)
+                st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
                 st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-with tab2:
-    bookmarks = list(st.session_state.get("bookmarks", {}).values())
-    if not bookmarks:
-        st.info("No bookmarks yet.")
-    else:
-        if layout_choice == "3-up grid (3 per row)":
-            cols = st.columns(3)
-            for idx, art in enumerate(bookmarks):
-                col = cols[idx % 3]
-                with col:
-                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
-                        unsafe_allow_html=True,
-                    )
-                    if art.get("media") and show_images:
-                        try:
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
-                    if art.get("summary"):
-                        st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
-                    if st.button("Remove", key=f"remove_{idx}"):
-                        if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
-                            del st.session_state["bookmarks"][art.get("link")]
-                    st.markdown("</div>", unsafe_allow_html=True)
         else:
-            for idx, art in enumerate(bookmarks):
+            # Single column list — keep consistent spacing
+            for art in filtered:
                 st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
-                    unsafe_allow_html=True,
-                )
-                if art.get("media") and show_images:
-                    try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
+
+                title_html = f"<div class='heading-box' style='width:100%'><a href='{art.get('link')}' target='_blank' rel='noopener noreferrer' style='color:inherit;text-decoration:none;'><strong>{art.get('title') or ''}</strong></a></div>"
+                st.markdown(title_html, unsafe_allow_html=True)
+
+                meta = []
+                if art.get("source"):
+                    meta.append(art["source"])
+                if art.get("published_dt"):
+                    meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
+                if meta:
+                    st.markdown(f"<div style='color:{_saved_prefs.get('muted_color','#8b7a80')};font-size:0.9rem;margin-bottom:8px;'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
+                if show_images and art.get("media"):
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+
                 if art.get("summary"):
-                    st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
-                if st.button("Remove", key=f"remove_list_{idx}"):
-                    if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
-                        del st.session_state["bookmarks"][art.get("link")]
+                    st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:480]}{'…' if len(art.get('summary') or '')>480 else ''}</div>", unsafe_allow_html=True)
+
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Open now uses a native, styled button (no hyperlink text). The UI uses a modern Inter font across headings and body.")
+# CONGRESS tab (keeps previous charts)
+with tab_congress:
+    st.markdown("## Current U.S. Congress Makeup")
+
+    # Static example values (update as desired)
+    senate = {"Democrats": 51, "Republicans": 49}
+    house = {"Democrats": 213, "Republicans": 222}
+
+    def chamber_chart(data: Dict[str, int], title: str):
+        df = pd.DataFrame([{"Party": k, "Seats": v} for k, v in data.items()])
+        chart = (
+            alt.Chart(df)
+            .mark_bar(cornerRadius=6)
+            .encode(
+                x=alt.X("Party:N", sort=None),
+                y=alt.Y("Seats:Q"),
+                color=alt.Color(
+                    "Party:N",
+                    scale=alt.Scale(domain=["Democrats", "Republicans"], range=["#4b9bd6", "#e65a3b"])
+                ),
+                tooltip=[alt.Tooltip("Party:N"), alt.Tooltip("Seats:Q")]
+            )
+            .properties(width=420, height=320, title=title)
+        )
+        st.altair_chart(chart, use_container_width=False)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        chamber_chart(senate, "Senate Composition")
+    with col2:
+        chamber_chart(house, "House Composition")
+
+    st.markdown("---")
+    s_dem = senate.get("Democrats", 0)
+    s_rep = senate.get("Republicans", 0)
+    h_dem = house.get("Democrats", 0)
+    h_rep = house.get("Republicans", 0)
+
+    st.markdown(f"<div style='display:flex;gap:12px;align-items:center;margin-bottom:8px;'><div style='padding:6px 10px;border-radius:999px;background:linear-gradient(90deg,#4b9bd6,#2b7fbf);color:#fff;font-weight:700;'>Senate Democrats: {s_dem}</div><div style='padding:6px 10px;border-radius:999px;background:linear-gradient(90deg,#f28b6b,#e65a3b);color:#fff;font-weight:700;'>Senate Republicans: {s_rep}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='display:flex;gap:12px;align-items:center;margin-bottom:8px;'><div style='padding:6px 10px;border-radius:999px;background:linear-gradient(90deg,#4b9bd6,#2b7fbf);color:#fff;font-weight:700;'>House Democrats: {h_dem}</div><div style='padding:6px 10px;border-radius:999px;background:linear-gradient(90deg,#f28b6b,#e65a3b);color:#fff;font-weight:700;'>House Republicans: {h_rep}</div></div>", unsafe_allow_html=True)
+
+    st.caption("Seat counts are illustrative; update the `senate` and `house` dictionaries with live data as needed.")
