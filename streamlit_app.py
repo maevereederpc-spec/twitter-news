@@ -496,9 +496,9 @@ summary_result = None
 if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=3)
 
-# ---------- Long-scroll rendering (either grid or single-column list) ----------
-tab1, tab2 = st.tabs(["Results", "Bookmarks"])
-with tab1:
+# ---------- Long-scroll rendering (Results only) ----------
+# Open button removed per request.
+with st.container():
     if summary_result:
         with st.expander("Summary of aggregated headlines"):
             st.markdown(f"**Summary:** {summary_result['summary']}")
@@ -537,14 +537,6 @@ with tab1:
                             unsafe_allow_html=True,
                         )
 
-                    # Open button: native button element that navigates same-tab (no hyperlink text)
-                    st.markdown(
-                        f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
-                        f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-
                     st.markdown("</div>", unsafe_allow_html=True)
 
         else:  # Simple single-column list
@@ -572,58 +564,6 @@ with tab1:
                         unsafe_allow_html=True,
                     )
 
-                st.markdown(
-                    f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
-                    f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown("</div>", unsafe_allow_html=True)
-
-with tab2:
-    bookmarks = list(st.session_state.get("bookmarks", {}).values())
-    if not bookmarks:
-        st.info("No bookmarks yet.")
-    else:
-        if layout_choice == "3-up grid (3 per row)":
-            cols = st.columns(3)
-            for idx, art in enumerate(bookmarks):
-                col = cols[idx % 3]
-                with col:
-                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
-                        unsafe_allow_html=True,
-                    )
-                    if art.get("media") and show_images:
-                        try:
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
-                    if art.get("summary"):
-                        st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
-                    if st.button("Remove", key=f"remove_{idx}"):
-                        if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
-                            del st.session_state["bookmarks"][art.get("link")]
-                    st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            for idx, art in enumerate(bookmarks):
-                st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
-                    unsafe_allow_html=True,
-                )
-                if art.get("media") and show_images:
-                    try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
-                if art.get("summary"):
-                    st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
-                if st.button("Remove", key=f"remove_list_{idx}"):
-                    if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
-                        del st.session_state["bookmarks"][art.get("link")]
                 st.markdown("</div>", unsafe_allow_html=True)
 
 st.caption("Open now uses a native, styled button (no hyperlink text). The UI uses a modern Inter font across headings and body.")
