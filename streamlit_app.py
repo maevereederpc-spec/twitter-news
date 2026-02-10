@@ -351,6 +351,14 @@ st.markdown(
 
     /* Muted and summary spacing tightened */
     .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
+
+    /*
+      Summary: always reserve space for 4 lines.
+      - Use line-clamp to visually limit to 4 lines.
+      - Use min-height based on 4 lines (using em so it scales with font-size).
+      - Keep overflow hidden so shorter summaries still occupy the reserved space.
+      - Use flex settings so the summary area doesn't force column growth but reserves space.
+    */
     .summary {
       color: #3b2a2f;
       font-size: 0.96rem;
@@ -358,8 +366,13 @@ st.markdown(
       margin-top: 6px;
       font-family: 'Inter', sans-serif;
       overflow: hidden;
-      flex: 1 1 auto;
-      min-height: 0;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 4;
+      /* Reserve space for 4 lines even if content is shorter */
+      min-height: calc(1.45em * 4);
+      /* allow the summary to take fixed space but not force column growth */
+      flex: 0 0 auto;
     }
 
     /* Image handling: constrain height, preserve aspect, and avoid expanding card */
