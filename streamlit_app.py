@@ -230,8 +230,6 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
     return {"summary": summary_paragraph, "top_keywords": top_keywords}
 
 # ---------- Session state ----------
-if "bookmarks" not in st.session_state:
-    st.session_state["bookmarks"] = {}
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
 if "page_index" not in st.session_state:
