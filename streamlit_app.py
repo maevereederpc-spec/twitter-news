@@ -259,7 +259,7 @@ _saved_prefs = load_prefs()
 # ---------- Page config and theme CSS ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
-# --- REPLACED CSS: heading pinned to top, content-below-heading wrapper, centered images, 12-line summary ---
+# --- UPDATED CSS: restore colored heading, make headings independent (relative), keep centered images and 12-line summary ---
 st.markdown(
     """
     <style>
@@ -330,13 +330,9 @@ st.markdown(
     }
     .article-card:hover { transform: none; box-shadow: none; }
 
-    /* --- Heading box: absolutely positioned so all headings align across the row --- */
+    /* --- Heading box: relative (restored colored background) so each card's heading is independent --- */
     .article-card .heading-box {
-      position: absolute;
-      top: 12px;
-      left: 12px;
-      right: 12px;
-      z-index: 5;
+      position: relative; /* make heading part of normal flow so each card's heading sits where its content dictates */
       background: linear-gradient(180deg, var(--accent), var(--accent-strong));
       color: #ffffff;
       padding: 10px 12px;
@@ -348,7 +344,9 @@ st.markdown(
       letter-spacing: -0.2px;
       box-shadow: 0 6px 18px rgba(255,143,194,0.12);
       border: 1px solid rgba(255,143,194,0.12);
-      min-height: calc(1.15em * 3.2);
+      width: 100%;
+      margin-bottom: 8px;
+      min-height: calc(1.15em * 2.6); /* comfortable heading height; adjust if you want more lines */
       box-sizing: border-box;
     }
     .article-card .heading-box a.article-link, .article-card .heading-box strong {
@@ -360,9 +358,9 @@ st.markdown(
       word-break: break-word;
     }
 
-    /* Reserve space at top of card equal to heading height + gap so content below doesn't overlap */
+    /* Keep a small gap above content; content-below-heading no longer needs large top padding */
     .article-card .content-below-heading {
-      padding-top: calc(12px + 10px + (1.15em * 3.2) + 8px);
+      padding-top: 0.5rem;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -429,8 +427,8 @@ st.markdown(
     /* Small spacing for single-column layout only */
     @media (max-width: 700px) {
       .article-card { padding: 10px; }
-      .article-card .heading-box { min-height: calc(1.15em * 2.6); left:10px; right:10px; top:10px; }
-      .article-card .content-below-heading { padding-top: calc(10px + 8px + (1.15em * 2.6) + 6px); }
+      .article-card .heading-box { min-height: calc(1.15em * 2.2); }
+      .article-card .content-below-heading { padding-top: 0.5rem; }
     }
 
     /* header modernized */
@@ -596,7 +594,7 @@ with st.container():
                     # Outer card
                     st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
-                    # Heading pinned to top (absolute)
+                    # Heading restored with colored background (relative so independent)
                     st.markdown(
                         f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
