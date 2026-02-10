@@ -415,8 +415,8 @@ st.markdown(
       box-sizing: border-box;
     }
 
-    /* Muted meta centered */
-    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; text-align:center; }
+    /* Muted meta centered - set to white by default per request */
+    .muted { color: #ffffff; font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; text-align:center; }
 
     /* Small spacing for single-column layout only */
     @media (max-width: 700px) {
@@ -492,11 +492,8 @@ with st.sidebar:
         save_prefs(prefs_to_save)
         st.success("Preferences saved to user_prefs.json")
 
-# ---------- Sidebar toggle ----------
-show_sidebar = st.checkbox("Show sidebar", value=st.session_state["show_sidebar"])
-st.session_state["show_sidebar"] = show_sidebar
-if not st.session_state["show_sidebar"]:
-    st.markdown("<style>[data-testid='stSidebar'] { display: none; }</style>", unsafe_allow_html=True)
+# Note: "Show sidebar" checkbox and its logic have been removed per request.
+# The sidebar will always be shown by default.
 
 # ---------- Text size adjustments ----------
 if text_size == "Large":
