@@ -264,18 +264,19 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
     :root{
-      --bg:#fff7fb;
-      --card:#ffffff;
-      --muted:#8b7a80;
-      --accent:#ffb6d5;
-      --accent-strong:#ff8fc2;
-      --text:#2b1f22;
+      /* Dark red theme (replaces previous light-pink palette) */
+      --bg:#2b0006;
+      --card:#3a0f12;
+      --muted:#d1b7b8;
+      --accent:#7f0a0a;
+      --accent-strong:#b30000;
+      --text:#fff5f5;
       --sidebar-black:#0b0b0b;
       --sidebar-text:#ffffff;
-      --border: rgba(43,31,34,0.12);
-      --shadow: 0 10px 30px rgba(43,31,34,0.06);
-      --action-pink: #ff8fc2;
-      --action-pink-strong: #ff5fae;
+      --border: rgba(179,0,0,0.12);
+      --shadow: 0 10px 30px rgba(179,0,0,0.08);
+      --action-pink: #8b0000;
+      --action-pink-strong: #b30000;
     }
     html, body, [class*="css"]  {
       background: var(--bg);
@@ -344,8 +345,8 @@ st.markdown(
       margin-bottom: 8px;
       font-weight: 800;
       letter-spacing: -0.2px;
-      box-shadow: 0 6px 18px rgba(255,143,194,0.12);
-      border: 1px solid rgba(255,143,194,0.12);
+      box-shadow: 0 6px 18px rgba(179,0,0,0.12);
+      border: 1px solid rgba(179,0,0,0.12);
       min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
       box-sizing: border-box;
     }
@@ -360,7 +361,7 @@ st.markdown(
 
     /* Title/link outside heading remains centered and constrained */
     a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
+    a.article-link:hover { background: rgba(179,0,0,0.03); text-decoration: none; }
 
     /* --- Image centering and responsive behavior --- */
     .article-card .stImage,
@@ -395,7 +396,7 @@ st.markdown(
 
     /* --- Summary: reserve 12 lines of space and center --- */
     .summary {
-      color: #3b2a2f;
+      color: #f6e9e9;
       font-size: 0.96rem;
       line-height: 1.45;
       margin-top: 6px;
