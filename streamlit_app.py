@@ -205,7 +205,6 @@ if "page_index" not in st.session_state:
 # ---------- Compact CSS: divide previous divider sizes by 3 ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
-# We take the previous compact sizes and divide key spacing/padding/gaps by ~3.
 st.markdown(
     """
     <style>
@@ -250,19 +249,19 @@ st.markdown(
       padding: 4px;
     }
 
-    /* Article card: further reduced sizes (divide previous compact by ~3) */
+    /* Article card: further reduced sizes */
     .article-card {
       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.98));
       border-radius: 6px;
-      padding: 4px;               /* was 12 -> now ~4 */
+      padding: 6px;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
       transition: transform 0.08s ease, box-shadow 0.08s ease;
-      min-height: 80px;          /* reduced */
+      min-height: 100px;
       display:flex;
       flex-direction:column;
       justify-content:space-between;
-      margin-bottom: 3px;        /* reduced spacing between cards */
+      margin-bottom: 6px;
       overflow: hidden;
     }
     .article-card:hover {
@@ -272,47 +271,47 @@ st.markdown(
 
     .heading-box {
       background: linear-gradient(90deg, rgba(255,182,213,0.18), rgba(255,143,194,0.08));
-      padding: 2px 3px;          /* reduced */
+      padding: 4px 6px;
       border-radius: 6px;
       display: inline-block;
-      margin-bottom: 3px;
+      margin-bottom: 6px;
       font-weight:700;
       color: var(--text);
-      font-size: 0.88rem;
+      font-size: 0.92rem;
     }
 
-    .muted { color: var(--muted); font-size: 0.75rem; margin-bottom: 3px; display:block; }
-    .summary { color: #3b2a2f; font-size: 0.82rem; line-height: 1.25; margin-top: 4px; }
+    .muted { color: var(--muted); font-size: 0.78rem; margin-bottom: 4px; display:block; }
+    .summary { color: #3b2a2f; font-size: 0.86rem; line-height: 1.25; margin-top: 6px; }
 
-    /* Buttons (Open anchor styled) - very compact pill */
+    /* Buttons (Open anchor styled) - compact pill */
     .open-button, .open-button:link, .open-button:visited, .open-button:hover, .open-button:active {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
       color: #fff !important;
       border: none;
-      padding: 4px 6px;         /* reduced */
+      padding: 6px 10px;
       border-radius: 999px;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none !important;
       display: inline-flex;
       align-items:center;
-      gap:4px;
+      gap:6px;
       box-shadow: 0 4px 10px rgba(255,143,194,0.10);
       transition: transform 0.08s ease, box-shadow 0.08s ease;
-      font-size: 0.82rem;
+      font-size: 0.86rem;
     }
     .open-button:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(255,143,194,0.10); }
 
     a.article-link { text-decoration: none; color: var(--text); }
     a.article-link:hover { text-decoration: underline; }
 
-    /* layout helpers: gaps reduced by ~3 */
-    .centered-img { text-align: center; margin-top: 4px; margin-bottom: 4px; }
-    .action-stack { display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:6px; }
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; align-items: start; } /* gap reduced */
+    /* layout helpers: gaps reduced */
+    .centered-img { text-align: center; margin-top: 6px; margin-bottom: 6px; }
+    .action-stack { display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:8px; }
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-items: start; }
     @media (max-width: 1200px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 760px) { .three-col-grid { grid-template-columns: 1fr; } }
-    .single-col-list { display: block; gap: 4px; }
+    .single-col-list { display: block; gap: 6px; }
 
     /* compact header */
     .top-header {
@@ -389,11 +388,10 @@ if text_size == "Large":
 elif text_size == "Extra large":
     st.markdown("<style> .article-card h3{font-size:1.06rem;} .summary{font-size:0.94rem;} </style>", unsafe_allow_html=True)
 
-# ---------- Top header ----------
+# ---------- Top header (compact, no tagline) ----------
 st.markdown(
     "<div class='top-header'>"
     "<div class='brand'><div class='logo'>NY</div><h1>NYT Dashboard</h1></div>"
-    "<div style='color:#6b4b5b;font-size:0.85rem;'>Curation · Clean · Readable</div>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -596,4 +594,4 @@ else:
             st.markdown("</div>", unsafe_allow_html=True)  # close article-card
         st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Compact 3×3 paged grid restored; spacing and paddings reduced further for a denser layout.")
+st.caption("Compact 3×3 paged grid restored; large boxes removed and top-right tagline removed.")
