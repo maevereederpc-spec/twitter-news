@@ -358,7 +358,9 @@ st.markdown(
       padding: 0 !important;
     }
 
-    /* Target the actual <img> elements and force centered layout */
+    /* Target the actual <img> elements and force centered layout
+       UNCAP max size: remove max-height constraint and allow natural image height.
+       Keep width behavior responsive so images respect the width you pass to st.image. */
     .article-card img,
     .article-card .stImage img,
     .article-card .element-container img,
@@ -370,8 +372,9 @@ st.markdown(
       margin-bottom: 8px !important;
       width: auto !important;
       max-width: 100% !important;
-      max-height: 140px !important; /* adjust if you want taller thumbnails */
-      object-fit: cover !important;
+      height: auto !important;
+      max-height: none !important; /* UNCAP the max size */
+      object-fit: contain !important;
       border-radius: 6px !important;
       flex: 0 0 auto !important;
     }
@@ -379,6 +382,8 @@ st.markdown(
     /* If Streamlit injects inline width attributes, override them for centering */
     .article-card img[width] {
       width: auto !important;
+      max-width: 100% !important;
+      height: auto !important;
     }
 
     /* Keep heading and summary centered */
@@ -412,7 +417,7 @@ st.markdown(
 
     /* Responsive tweaks */
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } .article-card img, .article-card .stImage img { max-height:160px !important; } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } .article-card img, .article-card .stImage img { max-height: none !important; } }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
@@ -590,7 +595,7 @@ with st.container():
                         st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
                     if show_images and art.get("media"):
                         try:
-                            # st.image will render an <img> inside wrappers; CSS centers it
+                            # st.image will render an <img> inside wrappers; CSS centers it and now images are uncapped
                             st.image(art["media"], width=int(image_width))
                         except Exception:
                             pass
