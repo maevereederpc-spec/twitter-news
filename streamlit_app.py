@@ -10,9 +10,21 @@ import requests
 from newspaper import Article
 from bs4 import BeautifulSoup
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import math
 from collections import Counter
+
+# Timezone support
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+    ZONEINFO_AVAILABLE = True
+except Exception:
+    ZONEINFO_AVAILABLE = False
+    try:
+        import pytz  # fallback
+        ZoneInfo = None
+    except Exception:
+        pytz = None
 
 # ---------- Configuration ----------
 DEFAULT_FEEDS = [
@@ -45,7 +57,8 @@ def fetch_rss(url: str) -> List[Dict]:
             "published": entry.get("published"),
             "summary": entry.get("summary") or entry.get("description"),
             "source": parsed.feed.get("title"),
-            "media": _extract_media(entry)
+            "media": _extract_media(entry),
+            "published_struct": entry.get("published_parsed")
         })
     return items
 
@@ -100,7 +113,12 @@ def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
         return None
     for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z"):
         try:
-            return datetime.strptime(s, fmt)
+            dt = datetime.strptime(s, fmt)
+            # If format had 'Z' or timezone offset, try to make it timezone-aware
+            if fmt.endswith("Z") or fmt.endswith("%z"):
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            return dt
         except Exception:
             continue
     try:
@@ -110,6 +128,34 @@ def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
     except Exception:
         pass
     return None
+
+def to_timezone(dt: Optional[datetime], tz_name: str) -> Optional[datetime]:
+    """Convert a datetime to the named timezone. If tz_name == 'System', use local system tz."""
+    if not dt:
+        return None
+    # If dt is naive, assume UTC (RSS often uses UTC)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if tz_name == "System":
+        return dt.astimezone()
+    try:
+        if ZONEINFO_AVAILABLE:
+            return dt.astimezone(ZoneInfo(tz_name))
+        elif pytz:
+            return dt.astimezone(pytz.timezone(tz_name))
+    except Exception:
+        # fallback to UTC
+        return dt.astimezone(timezone.utc)
+
+def format_dt_for_display(dt: Optional[datetime], tz_name: str) -> str:
+    if not dt:
+        return ""
+    converted = to_timezone(dt, tz_name)
+    if not converted:
+        return ""
+    # Example format: 2026-02-10 15:59 EST
+    tz_abbr = converted.tzname() or ""
+    return converted.strftime(f"%Y-%m-%d %H:%M {tz_abbr}")
 
 # ---------- Simple extractive summarizer ----------
 STOPWORDS = {
@@ -205,7 +251,6 @@ st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-
     :root{
       --bg:#fff7fb;
       --card:#ffffff;
@@ -220,40 +265,26 @@ st.markdown(
       --action-pink: #ff8fc2;
       --action-pink-strong: #ff5fae;
     }
-
     html, body, [class*="css"]  {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
       line-height: 1.6;
     }
-
     .stSidebar {
       background: linear-gradient(180deg, var(--sidebar-black), #111111);
       color: var(--sidebar-text);
       border-right: 1px solid rgba(255,255,255,0.04);
       padding-top: 18px;
     }
-    .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea, .stSidebar .stSelectbox>div>div>div {
-      background: #0f0f0f;
-      color: var(--sidebar-text);
-    }
-    .stSidebar .stMarkdown, .stSidebar .stButton {
-      color: var(--sidebar-text);
-    }
-    .stSidebar .stMarkdown p, .stSidebar .stMarkdown h2, .stSidebar .stMarkdown h3 {
-      color: var(--sidebar-text);
-    }
-
     .card {
       background: #ffffff;
       border-radius: 12px;
       padding: 14px;
-      box-shadow: var(--shadow);
-      border: 1px solid var(--border);
+      box-shadow: 0 6px 18px rgba(43,31,34,0.06);
+      border: 1px solid rgba(43,31,34,0.08);
       margin-bottom: 14px;
     }
-
     .heading-box {
       background: linear-gradient(90deg, rgba(255,182,213,0.18), rgba(255,143,194,0.08));
       padding: 8px 12px;
@@ -261,79 +292,34 @@ st.markdown(
       display: inline-block;
       margin-bottom: 8px;
     }
-
-    .card h3 {
-      margin: 6px 0 8px 0;
-      font-size: 1.05rem;
-      line-height: 1.3;
-    }
-
-    .muted {
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    .summary {
-      color: #3b2a2f;
-      font-size: 0.98rem;
-      line-height: 1.6;
-      margin-top: 8px;
-    }
-
-    /* Light-pink action buttons */
+    .muted { color: #bdb0b6; font-size: 0.92rem; }
+    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; }
     .stButton>button {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
-      color: #fff;
-      border: none;
-      padding: 8px 12px;
-      border-radius: 10px;
-      font-weight: 600;
-      box-shadow: none;
+      color: #fff; border: none; padding: 8px 12px; border-radius: 10px; font-weight: 600;
     }
-    .stButton>button:hover {
-      filter: brightness(0.95);
-    }
-
-    a.article-link {
-      text-decoration: none;
-      color: var(--text);
-    }
-    a.article-link:hover {
-      text-decoration: underline;
-    }
-
-    /* make the long-scroll grid comfortable */
-    .three-col-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
-      align-items: start;
-    }
-    @media (max-width: 1100px) {
-      .three-col-grid { grid-template-columns: repeat(2, 1fr); }
-    }
-    @media (max-width: 700px) {
-      .three-col-grid { grid-template-columns: 1fr; }
-    }
-
-    /* single-column list container */
-    .single-col-list {
-      display: block;
-      gap: 12px;
-    }
-
+    a.article-link { text-decoration: none; color: var(--text); }
+    a.article-link:hover { text-decoration: underline; }
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+    .single-col-list { display: block; gap: 12px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------- Sidebar content ----------
+# ---------- Sidebar content (includes timezone selector) ----------
+COMMON_TZ = [
+    "System", "UTC", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
+    "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai", "Australia/Sydney"
+]
+
 with st.sidebar:
     st.markdown("## NYT RSS Explorer")
     feeds_input = st.text_area("RSS feeds (one per line)", value="\n".join(DEFAULT_FEEDS), height=140)
     num_articles = st.slider("Max articles to aggregate", 5, 200, 60)
     image_width = st.number_input("Thumbnail width px", min_value=100, max_value=400, value=DEFAULT_THUMB_WIDTH, step=10)
-    # New setting: layout choice
     layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=0)
     show_images = st.checkbox("Show images", value=True)
     use_extraction = st.checkbox("Fetch full article text", value=False)
@@ -344,6 +330,13 @@ with st.sidebar:
     date_from = st.date_input("From", value=(datetime.utcnow() - timedelta(days=7)).date())
     date_to = st.date_input("To", value=datetime.utcnow().date())
     sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Source A→Z"], index=0)
+    st.markdown("---")
+    st.markdown("### Timezone")
+    st.write("Choose how published times are displayed.")
+    tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=0)
+    # If zoneinfo not available and user selected a non-System timezone, warn
+    if tz_choice != "System" and not ZONEINFO_AVAILABLE and 'pytz' not in globals():
+        st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times will show in UTC or system timezone.")
     st.markdown("---")
     st.markdown("### Summarize")
     st.write("Create a short summary of the aggregated headlines and short summaries.")
@@ -360,16 +353,7 @@ with st.sidebar:
 show_sidebar = st.checkbox("Show sidebar", value=st.session_state["show_sidebar"])
 st.session_state["show_sidebar"] = show_sidebar
 if not st.session_state["show_sidebar"]:
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] { display: none; }
-        [data-testid="stAppViewContainer"] > .css-1y4p8pa { margin-left: 0px; }
-        .css-1d391kg { margin-left: 0px !important; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("<style>[data-testid='stSidebar'] { display: none; }</style>", unsafe_allow_html=True)
 
 # ---------- Text size adjustments ----------
 if text_size == "Large":
@@ -377,7 +361,7 @@ if text_size == "Large":
 elif text_size == "Extra large":
     st.markdown("<style> .card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
 
-# ---------- Top header: NYT Dashboard with heading-box ----------
+# ---------- Top header ----------
 st.markdown("<div class='heading-box'><h2 style='margin:0;'>NYT Dashboard</h2></div>", unsafe_allow_html=True)
 
 # ---------- Fetch and aggregate ----------
@@ -398,12 +382,23 @@ for it in all_items:
     if not link or link in seen:
         continue
     seen.add(link)
-    it["published_parsed"] = parse_iso_date(it.get("published"))
+    # prefer structured published time if available
+    pub_dt = None
+    if it.get("published_struct"):
+        try:
+            import time as _time
+            pub_dt = datetime.fromtimestamp(_time.mktime(it["published_struct"]))
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            pub_dt = None
+    if not pub_dt:
+        pub_dt = parse_iso_date(it.get("published"))
+    it["published_dt"] = pub_dt
     unique.append(it)
 
 # Apply filters
 def matches_filters(item):
-    pub = item.get("published_parsed")
+    pub = item.get("published_dt")
     if pub:
         if pub.date() < date_from or pub.date() > date_to:
             return False
@@ -415,9 +410,9 @@ def matches_filters(item):
 
 filtered = [it for it in unique if matches_filters(it)]
 if sort_by == "Newest":
-    filtered.sort(key=lambda x: x.get("published_parsed") or datetime.min, reverse=True)
+    filtered.sort(key=lambda x: x.get("published_dt") or datetime.min, reverse=True)
 elif sort_by == "Oldest":
-    filtered.sort(key=lambda x: x.get("published_parsed") or datetime.min)
+    filtered.sort(key=lambda x: x.get("published_dt") or datetime.min)
 else:
     filtered.sort(key=lambda x: (x.get("source") or "").lower())
 
@@ -445,7 +440,6 @@ with tab1:
         st.info("No articles match your filters.")
     else:
         if layout_choice == "3-up grid (3 per row)":
-            # Create three columns once and stream articles into them
             cols = st.columns(3)
             for idx, art in enumerate(filtered):
                 col = cols[idx % 3]
@@ -458,8 +452,8 @@ with tab1:
                     meta = []
                     if art.get("source"):
                         meta.append(f"{art['source']}")
-                    if art.get("published"):
-                        meta.append(f"{art['published']}")
+                    if art.get("published_dt"):
+                        meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                     if meta:
                         st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
                     if show_images and art.get("media"):
@@ -472,7 +466,6 @@ with tab1:
                             f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
                             unsafe_allow_html=True,
                         )
-                    # unique keys per article to avoid collisions
                     if st.button("Open", key=f"open_{idx}", help="Open article in new tab"):
                         st.experimental_set_query_params(url=art.get("link"))
                     if st.button("★ Save", key=f"save_{idx}"):
@@ -489,8 +482,8 @@ with tab1:
                 meta = []
                 if art.get("source"):
                     meta.append(f"{art['source']}")
-                if art.get("published"):
-                    meta.append(f"{art['published']}")
+                if art.get("published_dt"):
+                    meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                 if meta:
                     st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
                 if show_images and art.get("media"):
@@ -552,4 +545,4 @@ with tab2:
                     toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Choose '3-up grid' for a three-across long scroll or 'Simple list' for a single-column feed.")
+st.caption("Choose '3-up grid' for a three-across long scroll or 'Simple list' for a single-column feed. Times display in the selected timezone.")
