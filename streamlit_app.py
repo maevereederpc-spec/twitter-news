@@ -11,7 +11,6 @@ from newspaper import Article
 from bs4 import BeautifulSoup
 import streamlit as st
 from datetime import datetime, timedelta, timezone
-import math
 from collections import Counter
 
 # Timezone support
@@ -34,9 +33,11 @@ NYT_FEEDS = {
 USER_AGENT = "NYT-RSS-Explorer/1.0"
 HEADERS = {"User-Agent": USER_AGENT}
 CACHE_TTL = 600
-POLITE_DELAY = 0.25
 DEFAULT_THUMB_WIDTH = 220
 MAX_AGGREGATE = 200  # safety cap to avoid extremely long pages
+GRID_ROWS = 3
+GRID_COLS = 3
+PAGE_SIZE = GRID_ROWS * GRID_COLS  # 3x3 grid
 
 # Defensive lxml check (warn if missing)
 try:
@@ -227,10 +228,13 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
 # ---------- Session state ----------
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
+if "page_index" not in st.session_state:
+    st.session_state["page_index"] = 0
 
-# ---------- Page config and modernized CSS (no large frames) ----------
+# ---------- Page config and compact CSS (dividers reduced by 3) ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
+# We reduce sizes (padding, margin, gaps) by roughly 1/3 compared to previous "modern" style.
 st.markdown(
     """
     <style>
@@ -246,120 +250,122 @@ st.markdown(
       --sidebar-black:#0b0b0b;
       --sidebar-text:#ffffff;
       --border: rgba(43,31,34,0.12);
-      --shadow: 0 14px 40px rgba(43,31,34,0.08);
+      --shadow: 0 6px 20px rgba(43,31,34,0.06);
       --action-pink: #ff8fc2;
       --action-pink-strong: #ff5fae;
-      --glass: rgba(255,255,255,0.6);
     }
 
     html, body, [class*="css"]  {
       background: linear-gradient(180deg, var(--bg), #fffafc);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      line-height: 1.6;
+      line-height: 1.5;
       -webkit-font-smoothing:antialiased;
       -moz-osx-font-smoothing:grayscale;
     }
 
-    /* Sidebar modernized */
+    /* Sidebar compact */
     .stSidebar {
       background: linear-gradient(180deg, #0b0b0b, #0f0f0f);
       color: var(--sidebar-text);
       border-right: 1px solid rgba(255,255,255,0.04);
-      padding: 20px 18px;
-      box-shadow: 0 8px 30px rgba(11,11,11,0.35);
+      padding: 14px 12px;
+      box-shadow: 0 6px 20px rgba(11,11,11,0.28);
     }
     .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
       background: rgba(255,255,255,0.03);
       color: var(--sidebar-text);
-      border-radius: 8px;
-      padding: 8px;
+      border-radius: 6px;
+      padding: 6px;
     }
-    .stSidebar .stSelectbox>div>div, .stSidebar .stSlider>div {
-      color: var(--sidebar-text);
-    }
-    .stSidebar h2 { color: var(--sidebar-text); margin-bottom: 6px; }
 
-    /* Article card: elevated glassy surface (no large frame behind) */
+    /* Article card: compact sizes (dividers reduced by ~3x) */
     .article-card {
       background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.98));
-      border-radius: 14px;
-      padding: 20px;
+      border-radius: 10px;
+      padding: 12px;               /* reduced from ~18 */
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      transition: transform 0.14s ease, box-shadow 0.14s ease;
-      min-height: 220px;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      min-height: 160px;          /* slightly smaller */
       display:flex;
       flex-direction:column;
       justify-content:space-between;
-      margin-bottom: 20px;
+      margin-bottom: 8px;         /* reduced spacing between cards */
     }
     .article-card:hover {
-      transform: translateY(-6px);
-      box-shadow: 0 22px 60px rgba(43,31,34,0.12);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 36px rgba(43,31,34,0.08);
     }
 
     .heading-box {
       background: linear-gradient(90deg, rgba(255,182,213,0.18), rgba(255,143,194,0.08));
-      padding: 8px 12px;
-      border-radius: 10px;
+      padding: 6px 8px;           /* reduced */
+      border-radius: 8px;
       display: inline-block;
-      margin-bottom: 12px;
+      margin-bottom: 8px;         /* reduced */
       font-weight:700;
       color: var(--text);
+      font-size: 0.95rem;
     }
 
-    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 10px; display:block; }
-    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; }
+    .muted { color: var(--muted); font-size: 0.85rem; margin-bottom: 6px; display:block; }
+    .summary { color: #3b2a2f; font-size: 0.92rem; line-height: 1.45; margin-top: 6px; }
 
-    /* Buttons (Open anchor styled) - not blue, modern pill */
+    /* Buttons (Open anchor styled) - compact pill */
     .open-button, .open-button:link, .open-button:visited, .open-button:hover, .open-button:active {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
       color: #fff !important;
       border: none;
-      padding: 10px 18px;
+      padding: 8px 12px;         /* reduced */
       border-radius: 999px;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none !important;
       display: inline-flex;
       align-items:center;
-      gap:8px;
-      box-shadow: 0 6px 18px rgba(255,143,194,0.18);
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      gap:6px;
+      box-shadow: 0 6px 14px rgba(255,143,194,0.12);
+      transition: transform 0.10s ease, box-shadow 0.10s ease;
+      font-size: 0.92rem;
     }
-    .open-button:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(255,143,194,0.18); }
+    .open-button:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(255,143,194,0.12); }
 
     a.article-link { text-decoration: none; color: var(--text); }
     a.article-link:hover { text-decoration: underline; }
 
-    /* layout helpers */
-    .centered-img { text-align: center; margin-top: 10px; margin-bottom: 14px; }
-    .action-stack { display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:14px; }
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+    /* layout helpers: smaller gaps */
+    .centered-img { text-align: center; margin-top: 8px; margin-bottom: 10px; }
+    .action-stack { display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:10px; }
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; } /* gap reduced */
     @media (max-width: 1200px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 760px) { .three-col-grid { grid-template-columns: 1fr; } }
-    .single-col-list { display: block; gap: 14px; }
+    .single-col-list { display: block; gap: 10px; }
 
-    /* subtle header */
+    /* compact header */
     .top-header {
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:12px;
-      margin-bottom:18px;
+      gap:8px;
+      margin-bottom:12px;
     }
     .brand {
       display:flex;
       align-items:center;
-      gap:12px;
+      gap:10px;
     }
     .brand .logo {
-      width:44px;height:44px;border-radius:10px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));
-      display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:18px;
-      box-shadow: 0 6px 18px rgba(255,143,194,0.12);
+      width:36px;height:36px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));
+      display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px;
+      box-shadow: 0 6px 14px rgba(255,143,194,0.10);
     }
-    .brand h1 { margin:0;font-size:1.15rem;font-weight:800;letter-spacing:0.2px; }
+    .brand h1 { margin:0;font-size:1rem;font-weight:800;letter-spacing:0.2px; }
+
+    /* pagination controls */
+    .pager { display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0; }
+    .pager button { background:transparent;border:1px solid rgba(43,31,34,0.06);padding:6px 10px;border-radius:8px;cursor:pointer; }
+    .pager .current { font-weight:700; color:var(--muted); }
 
     </style>
     """,
@@ -378,7 +384,7 @@ with st.sidebar:
     feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=0)
     num_articles = st.slider("Max articles to aggregate", 5, 200, 60)
     image_width = st.number_input("Thumbnail width px", min_value=100, max_value=400, value=DEFAULT_THUMB_WIDTH, step=10)
-    layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=0)
+    layout_choice = st.selectbox("Layout", ["3x3 grid (paged)", "Simple list (single column)"], index=0)
     show_images = st.checkbox("Show images", value=True)
     use_extraction = st.checkbox("Fetch full article text", value=False)
     text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=0)
@@ -407,15 +413,15 @@ if not st.session_state["show_sidebar"]:
 
 # ---------- Text size adjustments ----------
 if text_size == "Large":
-    st.markdown("<style> .article-card h3{font-size:1.15rem;} .summary{font-size:1.05rem;} </style>", unsafe_allow_html=True)
+    st.markdown("<style> .article-card h3{font-size:1.05rem;} .summary{font-size:1.0rem;} </style>", unsafe_allow_html=True)
 elif text_size == "Extra large":
-    st.markdown("<style> .article-card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
+    st.markdown("<style> .article-card h3{font-size:1.12rem;} .summary{font-size:1.06rem;} </style>", unsafe_allow_html=True)
 
-# ---------- Top header (modern) ----------
+# ---------- Top header (compact) ----------
 st.markdown(
     "<div class='top-header'>"
     "<div class='brand'><div class='logo'>NY</div><h1>NYT Dashboard</h1></div>"
-    "<div style='color:#6b4b5b;font-size:0.95rem;'>Curation · Clean · Readable</div>"
+    "<div style='color:#6b4b5b;font-size:0.9rem;'>Curation · Clean · Readable</div>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -478,7 +484,23 @@ summary_result = None
 if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=summary_length)
 
-# ---------- Render results (modernized visuals, no large frames) ----------
+# ---------- Pagination helpers for 3x3 grid ----------
+total_items = len(filtered)
+total_pages = max(1, (total_items + PAGE_SIZE - 1) // PAGE_SIZE)
+page_index = st.session_state["page_index"]
+if page_index >= total_pages:
+    page_index = total_pages - 1
+    st.session_state["page_index"] = page_index
+
+def goto_prev():
+    if st.session_state["page_index"] > 0:
+        st.session_state["page_index"] -= 1
+
+def goto_next():
+    if st.session_state["page_index"] < total_pages - 1:
+        st.session_state["page_index"] += 1
+
+# ---------- Render results (3x3 paged grid or compact list) ----------
 if summary_result:
     with st.expander("Summary of aggregated headlines"):
         st.markdown(f"**Summary:** {summary_result['summary']}")
@@ -489,10 +511,46 @@ if summary_result:
 if not filtered:
     st.info("No articles match your filters.")
 else:
-    if layout_choice == "3-up grid (3 per row)":
+    if layout_choice == "3x3 grid (paged)":
+        # Show pager controls
+        st.markdown(
+            "<div class='pager'>"
+            f"<button onclick='window.streamlitRunPrev()' id='prev-btn'>&larr; Prev</button>"
+            f"<div class='current'> Page {page_index+1} / {total_pages} </div>"
+            f"<button onclick='window.streamlitRunNext()' id='next-btn'>Next &rarr;</button>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Wire up simple JS callbacks to call Streamlit buttons (works in many Streamlit setups)
+        st.markdown(
+            """
+            <script>
+            window.streamlitRunPrev = () => {
+              const el = window.parent.document.querySelector("button[data-testid='stButton'][data-key='pager_prev']");
+              if(el) el.click();
+            }
+            window.streamlitRunNext = () => {
+              const el = window.parent.document.querySelector("button[data-testid='stButton'][data-key='pager_next']");
+              if(el) el.click();
+            }
+            </script>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Hidden Streamlit buttons to handle pager actions (keys used above)
+        st.button("pager_prev", key="pager_prev", on_click=goto_prev)
+        st.button("pager_next", key="pager_next", on_click=goto_next)
+
+        # Compute slice for current page
+        start = page_index * PAGE_SIZE
+        end = start + PAGE_SIZE
+        page_items = filtered[start:end]
+
+        # Render grid container
         st.markdown("<div class='three-col-grid'>", unsafe_allow_html=True)
-        for idx, art in enumerate(filtered):
-            # Article card only (no large frame)
+        for art in page_items:
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
             # Title with heading box
@@ -510,17 +568,17 @@ else:
             if meta:
                 st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
 
-            # Centered image (rendered as HTML to keep perfect centering)
+            # Centered image
             if show_images and art.get("media"):
                 st.markdown(
-                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:10px;box-shadow:0 8px 24px rgba(43,31,34,0.06);'/></div>",
+                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;box-shadow:0 6px 18px rgba(43,31,34,0.06);'/></div>",
                     unsafe_allow_html=True,
                 )
 
             # Summary
             if art.get("summary"):
                 st.markdown(
-                    f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
+                    f"<div class='summary'>{(art.get('summary') or '')[:240]}{'…' if len(art.get('summary') or '')>240 else ''}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -533,11 +591,22 @@ else:
             )
 
             st.markdown("</div>", unsafe_allow_html=True)  # close article-card
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)  # close grid
+
+        # Small pager at bottom as well
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            prev_disabled = st.session_state["page_index"] == 0
+            next_disabled = st.session_state["page_index"] >= total_pages - 1
+            if st.button("Prev", disabled=prev_disabled):
+                goto_prev()
+            st.write(f"Page {st.session_state['page_index']+1} of {total_pages}")
+            if st.button("Next", disabled=next_disabled):
+                goto_next()
 
     else:  # Simple single-column list
         st.markdown("<div class='single-col-list'>", unsafe_allow_html=True)
-        for idx, art in enumerate(filtered):
+        for art in filtered:
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
 
             st.markdown(
@@ -555,13 +624,13 @@ else:
 
             if show_images and art.get("media"):
                 st.markdown(
-                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:10px;box-shadow:0 8px 24px rgba(43,31,34,0.06);'/></div>",
+                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;box-shadow:0 6px 18px rgba(43,31,34,0.06);'/></div>",
                     unsafe_allow_html=True,
                 )
 
             if art.get("summary"):
                 st.markdown(
-                    f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
+                    f"<div class='summary'>{(art.get('summary') or '')[:480]}{'…' if len(art.get('summary') or '')>480 else ''}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -575,4 +644,4 @@ else:
             st.markdown("</div>", unsafe_allow_html=True)  # close article-card
         st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Updated: removed large frames between articles; cards are compact, modern, and aligned with the existing color palette.")
+st.caption("Grid now shows a compact 3×3 paged layout (page size reduced). Use Prev/Next to navigate pages.")
