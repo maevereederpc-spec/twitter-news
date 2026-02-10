@@ -304,7 +304,8 @@ st.markdown(
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
 
-    /* Article card: remove borders/shadows and make each card fill its column height */
+    /* Article card: remove borders/shadows and make each card fill its column height.
+       Center content (title, image, subtext) vertically and horizontally. */
     .article-card {
       background: transparent;
       border: none;
@@ -318,6 +319,8 @@ st.markdown(
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
+      align-items: center;            /* center horizontally */
+      text-align: center;            /* center text */
       height: 100%;
       flex: 1 1 auto;
       min-height: 0; /* important for flex children to allow proper shrinking */
@@ -335,7 +338,8 @@ st.markdown(
       color: #ffffff;
       padding: 10px 12px;
       border-radius: 8px;
-      display: inline-block;
+      display: block;                /* full-width block so title centers */
+      width: 100%;
       margin-bottom: 8px;
       font-weight: 800;
       letter-spacing: -0.2px;
@@ -343,21 +347,32 @@ st.markdown(
       border: 1px solid rgba(255,143,194,0.12);
     }
 
-    /* Slightly increase title contrast inside heading */
+    /* Title/link inside heading: center and high contrast */
     .heading-box a.article-link, .heading-box strong {
       color: #ffffff;
       text-decoration: none;
+      display: block;
+      text-align: center;
     }
 
-    /* Muted and summary spacing tightened */
-    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
+    /* Muted and summary spacing tightened and centered */
+    .muted {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+      display:block;
+      font-family: 'Inter', sans-serif;
+      opacity: 0.95;
+      text-align: center;
+      width: 100%;
+    }
 
     /*
       Summary: always reserve space for 4 lines.
       - Use line-clamp to visually limit to 4 lines.
       - Use min-height based on 4 lines (using em so it scales with font-size).
       - Keep overflow hidden so shorter summaries still occupy the reserved space.
-      - Use flex settings so the summary area doesn't force column growth but reserves space.
+      - Center text and ensure it doesn't force column growth.
     */
     .summary {
       color: #3b2a2f;
@@ -371,17 +386,20 @@ st.markdown(
       -webkit-line-clamp: 4;
       /* Reserve space for 4 lines even if content is shorter */
       min-height: calc(1.45em * 4);
+      /* keep summary centered */
+      text-align: center;
       /* allow the summary to take fixed space but not force column growth */
       flex: 0 0 auto;
+      width: 100%;
     }
 
-    /* Image handling: constrain height, preserve aspect, and avoid expanding card */
+    /* Image handling: constrain height, preserve aspect, center, and avoid expanding card */
     .article-card img, .article-card > img, .article-card img[src] {
       width: 100%;
       max-height: 140px; /* adjust as needed */
       object-fit: cover;
       display: block;
-      margin: 8px 0;
+      margin: 8px auto; /* center image horizontally */
       border-radius: 6px;
       flex: 0 0 auto;
     }
@@ -392,6 +410,7 @@ st.markdown(
       max-height: 140px;
       object-fit: cover;
       display: block;
+      margin: 8px auto;
       border-radius: 6px;
       flex: 0 0 auto;
     }
@@ -425,12 +444,14 @@ st.markdown(
       min-height: 0;
       display: flex;
       flex-direction: column;
+      align-items: stretch;
     }
     .stColumns > div > div, .css-1lcbmhc > div > div {
       flex: 1 1 auto;
       min-height: 0;
       display: flex;
       flex-direction: column;
+      align-items: stretch;
     }
 
     /* Small spacing for single-column layout only (keeps list readable) */
@@ -614,6 +635,7 @@ with st.container():
                         st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
                     if show_images and art.get("media"):
                         try:
+                            # st.image will render an <img> inside wrappers; CSS centers it
                             st.image(art["media"], width=int(image_width))
                         except Exception:
                             pass
