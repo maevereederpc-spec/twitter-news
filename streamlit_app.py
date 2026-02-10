@@ -343,24 +343,47 @@ st.markdown(
     a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
     a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
 
-    /* Image handling: force centered rendering and constrain size */
-    .article-card img,
-    .article-card > img,
-    .article-card img[src],
+    /* --- Strong centering for Streamlit image wrappers and raw <img> --- */
+
+    /* Target Streamlit image wrapper (figure-like) and force center */
     .article-card .stImage,
+    .article-card .element-container,
+    .article-card figure,
+    .article-card .stImage > div {
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
+      width: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    /* Target the actual <img> elements and force centered layout */
+    .article-card img,
     .article-card .stImage img,
-    .article-card .element-container img {
-      display: block;
-      margin-left: auto;
-      margin-right: auto;
-      margin-top: 8px;
-      margin-bottom: 8px;
-      width: 100%;
-      max-width: 100%;
-      max-height: 140px;       /* adjust if you want taller/shorter thumbnails */
-      object-fit: cover;
-      border-radius: 6px;
-      flex: 0 0 auto;
+    .article-card .element-container img,
+    .article-card figure img {
+      display: block !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      margin-top: 8px !important;
+      margin-bottom: 8px !important;
+      width: auto !important;
+      max-width: 100% !important;
+      max-height: 140px !important; /* adjust if you want taller thumbnails */
+      object-fit: cover !important;
+      border-radius: 6px !important;
+      flex: 0 0 auto !important;
+    }
+
+    /* If Streamlit injects inline width attributes, override them for centering */
+    .article-card img[width] {
+      width: auto !important;
+    }
+
+    /* Keep heading and summary centered */
+    .heading-box, .heading-box a.article-link, .muted, .summary {
+      text-align: center !important;
     }
 
     /* Keep summary centered and reserve 4 lines of space */
@@ -389,7 +412,7 @@ st.markdown(
 
     /* Responsive tweaks */
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } .article-card img, .article-card .stImage img { max-height:160px !important; } }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
