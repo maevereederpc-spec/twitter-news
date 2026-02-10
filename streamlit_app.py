@@ -261,92 +261,121 @@ st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown(
     """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    :root{
+      --bg:#fff7fb;
+      --card:#ffffff;
+      --muted:#8b7a80;
+      --accent:#ffb6d5;
+      --accent-strong:#ff8fc2;
+      --text:#2b1f22;
+      --sidebar-black:#0b0b0b;
+      --sidebar-text:#ffffff;
+      --border: rgba(43,31,34,0.12);
+      --shadow: 0 10px 30px rgba(43,31,34,0.06);
+      --action-pink: #ff8fc2;
+      --action-pink-strong: #ff5fae;
+    }
+    html, body, [class*="css"]  {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      line-height: 1.6;
+    }
+    .stSidebar {
+      background: linear-gradient(180deg, var(--sidebar-black), #111111);
+      color: var(--sidebar-text);
+      border-right: 1px solid rgba(255,255,255,0.04);
+      padding-top: 18px;
+    }
+    .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
+      background: #0f0f0f;
+      color: var(--sidebar-text);
+      font-family: 'Inter', sans-serif;
+    }
+
     /* Refreshed article card and separators */
-.article-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.95));
-  border-radius: 14px;
-  padding: 18px 18px 16px 18px;
-  box-shadow: 0 8px 24px rgba(43,31,34,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
-  border: 1px solid rgba(43,31,34,0.06);
-  margin-bottom: 14px;
-  transition: transform 0.14s cubic-bezier(.2,.9,.2,1), box-shadow 0.14s ease;
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(4px);
-}
+    .article-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,250,252,0.95));
+      border-radius: 14px;
+      padding: 18px 18px 16px 18px;
+      box-shadow: 0 8px 24px rgba(43,31,34,0.06), inset 0 1px 0 rgba(255,255,255,0.6);
+      border: 1px solid rgba(43,31,34,0.06);
+      margin-bottom: 14px;
+      transition: transform 0.14s cubic-bezier(.2,.9,.2,1), box-shadow 0.14s ease;
+      position: relative;
+      overflow: hidden;
+      backdrop-filter: blur(4px);
+    }
 
-/* Thin left accent bar for visual rhythm */
-.article-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  background: linear-gradient(180deg, rgba(255,143,194,0.95), rgba(255,182,213,0.85));
-  border-top-left-radius: 14px;
-  border-bottom-left-radius: 14px;
-  box-shadow: 0 4px 12px rgba(255,143,194,0.06);
-  transform: translateX(-2px);
-}
+    /* Thin left accent bar for visual rhythm */
+    .article-card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      background: linear-gradient(180deg, rgba(255,143,194,0.95), rgba(255,182,213,0.85));
+      border-top-left-radius: 14px;
+      border-bottom-left-radius: 14px;
+      box-shadow: 0 4px 12px rgba(255,143,194,0.06);
+      transform: translateX(-2px);
+    }
 
-/* Hover lift and stronger shadow */
-.article-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 18px 40px rgba(43,31,34,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
-}
+    /* Hover lift and stronger shadow */
+    .article-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 18px 40px rgba(43,31,34,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+    }
 
-/* Subtle divider between content blocks inside a card */
-.article-card .muted + .summary,
-.article-card .heading-box + .muted {
-  border-top: 1px dashed rgba(43,31,34,0.04);
-  padding-top: 10px;
-  margin-top: 10px;
-}
+    /* Subtle divider between content blocks inside a card */
+    .article-card .muted + .summary,
+    .article-card .heading-box + .muted {
+      border-top: 1px dashed rgba(43,31,34,0.04);
+      padding-top: 10px;
+      margin-top: 10px;
+    }
 
-/* Heading box refinement */
-.heading-box {
-  background: linear-gradient(90deg, rgba(255,182,213,0.14), rgba(255,143,194,0.06));
-  padding: 10px 14px;
-  border-radius: 10px;
-  display: inline-block;
-  margin-bottom: 8px;
-  font-weight: 700;
-  letter-spacing: -0.2px;
-}
+    /* Heading box refinement */
+    .heading-box {
+      background: linear-gradient(90deg, rgba(255,182,213,0.14), rgba(255,143,194,0.06));
+      padding: 10px 14px;
+      border-radius: 10px;
+      display: inline-block;
+      margin-bottom: 8px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
 
-/* Muted meta styling */
-.muted {
-  color: var(--muted);
-  font-size: 0.9rem;
-  margin-bottom: 8px;
-  display:block;
-  font-family: 'Inter', sans-serif;
-  opacity: 0.95;
-}
+    /* Muted meta styling */
+    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 8px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
 
-/* Summary text with improved contrast and spacing */
-.summary {
-  color: #3b2a2f;
-  font-size: 0.98rem;
-  line-height: 1.65;
-  margin-top: 8px;
-  font-family: 'Inter', sans-serif;
-}
+    /* Summary text with improved contrast and spacing */
+    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.65; margin-top: 8px; font-family: 'Inter', sans-serif; }
 
-/* Optional thin separators between cards when using single-column layout */
-.single-col-list > .article-card:not(:last-child) {
-  margin-bottom: 18px;
-}
+    /* Optional thin separators between cards when using single-column layout */
+    .single-col-list > .article-card:not(:last-child) { margin-bottom: 18px; }
 
-/* Grid spacing refinement */
-.three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+    /* Grid spacing refinement */
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; align-items: start; }
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
 
-/* Make article links feel tappable without extra buttons */
-a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; display:inline-block; padding:4px 6px; border-radius:6px; }
-a.article-link:hover { text-decoration: none; background: rgba(255,143,194,0.06); }
+    /* Make article links feel tappable without extra buttons */
+    a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; display:inline-block; padding:4px 6px; border-radius:6px; }
+    a.article-link:hover { text-decoration: none; background: rgba(255,143,194,0.06); }
+
+    /* header modernized */
+    .top-header { margin-bottom: 12px; }
+    .brand { display:flex; align-items:center; gap:12px; font-family: 'Inter', sans-serif; }
+    .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------- Sidebar content (with saved prefs) ----------
 COMMON_TZ = [
@@ -552,4 +581,4 @@ with st.container():
 
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Open now uses a native, styled button (no hyperlink text). The UI uses a modern Inter font across headings and body.")
+st.caption("The UI uses a modern Inter font across headings and body.")
