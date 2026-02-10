@@ -295,55 +295,104 @@ st.markdown(
       font-family: 'Inter', sans-serif;
     }
 
-    /* No boundaries between articles: flat, even rows */
+    /* --- Flat, boundaryless cards with even column heights --- */
+
+    /* Make the page background and base variables unchanged */
+    :root{
+      --bg:#fff7fb;
+      --card:#ffffff;
+      --muted:#8b7a80;
+      --accent:#ffb6d5;
+      --accent-strong:#ff8fc2;
+      --text:#2b1f22;
+    }
+
+    /* Container grid: zero gap so cards sit flush; columns stretch to equal height */
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: stretch; }
+
+    /* Responsive fallbacks */
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+
+    /* Article card: remove borders/shadows and make each card fill its column height */
     .article-card {
       background: transparent;
       border: none;
       box-shadow: none;
       border-radius: 0;
-      padding: 12px 8px;
+      padding: 12px 10px;
       margin: 0;
       transition: none;
       position: relative;
-      overflow: visible;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
-      min-height: 260px; /* helps equalize heights across columns */
       height: 100%;
     }
 
-    /* Remove any hover lift or visual separation */
+    /* Ensure no hover lift or visual separation */
     .article-card:hover {
       transform: none;
       box-shadow: none;
     }
 
-    /* Heading box kept subtle but without strong boundary */
+    /* Heading box: subtle background only, no strong boundary */
     .heading-box {
-      background: rgba(255,182,213,0.06);
+      background: rgba(255,182,213,0.04);
       padding: 8px 10px;
       border-radius: 6px;
       display: inline-block;
       margin-bottom: 6px;
       font-weight: 700;
-      letter-spacing: -0.2px;
     }
 
-    /* Muted meta styling */
+    /* Meta and summary spacing tightened */
     .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; }
+    .summary { color: #3b2a2f; font-size: 0.96rem; line-height: 1.45; margin-top: 6px; font-family: 'Inter', sans-serif; }
 
-    /* Summary text with slightly tighter spacing */
-    .summary { color: #3b2a2f; font-size: 0.96rem; line-height: 1.5; margin-top: 6px; font-family: 'Inter', sans-serif; }
+    /* Image handling: constrain height, preserve aspect, and avoid expanding card */
+    .article-card img, .article-card > img, .article-card img[src] {
+      width: 100%;
+      max-height: 140px;
+      object-fit: cover;
+      display: block;
+      margin: 8px 0;
+      border-radius: 6px;
+    }
 
-    /* Ensure grid columns present even card heights visually */
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: stretch; }
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+    /* If you use st.image (which wraps images in <img>), target the wrapper too */
+    .article-card .stImage, .article-card .element-container img {
+      width: 100%;
+      max-height: 140px;
+      object-fit: cover;
+    }
 
-    /* Make article links feel tappable without extra buttons */
-    a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { text-decoration: none; background: rgba(255,143,194,0.04); }
+    /* Make the title link tappable but keep it boundaryless */
+    a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
+    a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
+
+    /* Ensure Streamlit column wrappers stretch and allow cards to fill height */
+    /* These selectors are intentionally broad to work across Streamlit versions */
+    [data-testid="column"] > div {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    [data-testid="column"] {
+      height: 100%;
+    }
+    /* Additional fallback: target common Streamlit column wrapper patterns */
+    .stColumns > div, .css-1lcbmhc > div {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Small spacing for single-column layout only (keeps list readable) */
+    @media (max-width: 700px) {
+      .article-card { padding: 10px; }
+    }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
