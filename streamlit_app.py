@@ -299,6 +299,8 @@ st.markdown(
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
     .single-col-list { display: block; gap: 12px; }
+    /* extra spacing for action area */
+    .action-anchor-button { margin-right: 18px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -437,8 +439,9 @@ with tab1:
                 col = cols[idx % 3]
                 with col:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
+                    # Title links now use same-tab anchor; clicking title also redirects fully
                     st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
                     )
                     meta = []
@@ -458,25 +461,28 @@ with tab1:
                             f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
                             unsafe_allow_html=True,
                         )
-                    # Open as same-tab redirect using an HTML anchor styled like the app buttons
-                    st.markdown(
-                        f"<div style='display:flex;gap:8px;margin-top:10px;'>"
-                        f"<a href='{art.get('link')}' target='_self' style='text-decoration:none;'>"
-                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
-                        f"</a>",
-                        unsafe_allow_html=True,
-                    )
-                    # Save button remains a Streamlit widget so it updates session_state
-                    if st.button("★ Save", key=f"save_{idx}"):
-                        toggle_bookmark(art)
-                    st.markdown("</div>", unsafe_allow_html=True)
+
+                    # Action area: two columns so Open (anchor) and Save (Streamlit button) are spaced
+                    action_cols = st.columns([1, 1])
+                    # Left column: Open anchor (same-tab redirect). Add class for spacing.
+                    with action_cols[0]:
+                        st.markdown(
+                            f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
+                            f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                            f"</a>",
+                            unsafe_allow_html=True,
+                        )
+                    # Right column: Save button (Streamlit) so it updates session state
+                    with action_cols[1]:
+                        if st.button("★ Save", key=f"save_{idx}"):
+                            toggle_bookmark(art)
                     st.markdown("</div>", unsafe_allow_html=True)
 
         else:  # Simple single-column list
             for idx, art in enumerate(filtered):
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
                 meta = []
@@ -496,16 +502,19 @@ with tab1:
                         f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
                         unsafe_allow_html=True,
                     )
-                st.markdown(
-                    f"<div style='display:flex;gap:8px;margin-top:10px;'>"
-                    f"<a href='{art.get('link')}' target='_self' style='text-decoration:none;'>"
-                    f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
-                    f"</a>",
-                    unsafe_allow_html=True,
-                )
-                if st.button("★ Save", key=f"save_list_{idx}"):
-                    toggle_bookmark(art)
-                st.markdown("</div>", unsafe_allow_html=True)
+
+                # Action area: two columns for spacing
+                action_cols = st.columns([1, 1])
+                with action_cols[0]:
+                    st.markdown(
+                        f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
+                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                        f"</a>",
+                        unsafe_allow_html=True,
+                    )
+                with action_cols[1]:
+                    if st.button("★ Save", key=f"save_list_{idx}"):
+                        toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 with tab2:
@@ -520,7 +529,7 @@ with tab2:
                 with col:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
                     )
                     if art.get("media") and show_images:
@@ -537,7 +546,7 @@ with tab2:
             for idx, art in enumerate(bookmarks):
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
                 if art.get("media") and show_images:
@@ -551,4 +560,4 @@ with tab2:
                     toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Open now redirects you directly to the NYT article in the same tab. Use Save to bookmark items in this session.")
+st.caption("Open now fully redirects you to the NYT article in the same tab. Save bookmarks persist for this session.")
