@@ -299,8 +299,9 @@ st.markdown(
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
     .single-col-list { display: block; gap: 12px; }
-    /* extra spacing for action area */
-    .action-anchor-button { margin-right: 18px; }
+    /* center image and action area */
+    .centered-img { text-align: center; margin-top: 8px; margin-bottom: 8px; }
+    .action-anchor-button { text-align: center; display: inline-block; margin-bottom: 6px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -439,7 +440,7 @@ with tab1:
                 col = cols[idx % 3]
                 with col:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
-                    # Title links now use same-tab anchor; clicking title also redirects fully
+                    # Title link (same-tab)
                     st.markdown(
                         f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
@@ -451,29 +452,29 @@ with tab1:
                         meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                     if meta:
                         st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
+                    # Centered image
                     if show_images and art.get("media"):
-                        try:
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
+                        st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+
                     if art.get("summary"):
                         st.markdown(
                             f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
                             unsafe_allow_html=True,
                         )
 
-                    # Action area: two columns so Open (anchor) and Save (Streamlit button) are spaced
-                    action_cols = st.columns([1, 1])
-                    # Left column: Open anchor (same-tab redirect). Add class for spacing.
-                    with action_cols[0]:
+                    # Action area centered: use three columns and place both controls in the middle column
+                    action_cols = st.columns([1, 2, 1])
+                    with action_cols[1]:
+                        # Open anchor (same-tab redirect)
                         st.markdown(
+                            f"<div style='display:flex;justify-content:center;gap:18px;align-items:center;'>"
                             f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
-                            f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                            f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
                             f"</a>",
                             unsafe_allow_html=True,
                         )
-                    # Right column: Save button (Streamlit) so it updates session state
-                    with action_cols[1]:
+                        # Save button (Streamlit) centered below the anchor
                         if st.button("★ Save", key=f"save_{idx}"):
                             toggle_bookmark(art)
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -492,27 +493,27 @@ with tab1:
                     meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                 if meta:
                     st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+
+                # Centered image
                 if show_images and art.get("media"):
-                    try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+
                 if art.get("summary"):
                     st.markdown(
                         f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
                         unsafe_allow_html=True,
                     )
 
-                # Action area: two columns for spacing
-                action_cols = st.columns([1, 1])
-                with action_cols[0]:
+                # Action area centered
+                action_cols = st.columns([1, 2, 1])
+                with action_cols[1]:
                     st.markdown(
+                        f"<div style='display:flex;justify-content:center;gap:18px;align-items:center;'>"
                         f"<a class='action-anchor-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer' style='text-decoration:none;'>"
-                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:600;'>Open</button>"
                         f"</a>",
                         unsafe_allow_html=True,
                     )
-                with action_cols[1]:
                     if st.button("★ Save", key=f"save_list_{idx}"):
                         toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -533,10 +534,7 @@ with tab2:
                         unsafe_allow_html=True,
                     )
                     if art.get("media") and show_images:
-                        try:
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
+                        st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
                     if art.get("summary"):
                         st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
                     if st.button("Remove", key=f"remove_{idx}"):
@@ -550,14 +548,11 @@ with tab2:
                     unsafe_allow_html=True,
                 )
                 if art.get("media") and show_images:
-                    try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
                 if art.get("summary"):
                     st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
                 if st.button("Remove", key=f"remove_list_{idx}"):
                     toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Open now fully redirects you to the NYT article in the same tab. Save bookmarks persist for this session.")
+st.caption("Images are centered and action controls sit below each image for a cleaner, consistent layout.")
