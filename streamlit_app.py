@@ -2,6 +2,7 @@ import streamlit as st
 
 # ============================================================
 # NYT Dashboard — with Saved Preferences + Congress Tab
+# (Updated: Altair data uses pandas DataFrame to avoid ValueError)
 # ============================================================
 
 import os
@@ -9,13 +10,16 @@ import json
 import time
 import re
 from typing import List, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from collections import Counter
+
 import feedparser
 import requests
 from bs4 import BeautifulSoup
+
 import streamlit as st
-from datetime import datetime, timedelta, timezone
-from collections import Counter
 import altair as alt
+import pandas as pd
 
 # ---------- Timezone support ----------
 try:
@@ -76,11 +80,21 @@ def fetch_rss(url: str):
 
 def extract_media(entry):
     media = entry.get("media_content") or entry.get("media_thumbnail")
-    if media and isinstance(media, list):
-        return media[0].get("url")
+    if media and isinstance(media, list) and media:
+        m = media[0]
+        return m.get("url") or m.get("value")
+    enc = entry.get("enclosures")
+    if enc and isinstance(enc, list) and enc:
+        return enc[0].get("href")
+    summary = entry.get("summary", "")
+    if "<img" in summary:
+        soup = BeautifulSoup(summary, "html.parser")
+        img = soup.find("img")
+        if img and img.get("src"):
+            return img.get("src")
     return None
 
-# ---------- UI Styling ----------
+# ---------- Page setup and styling ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown("""
@@ -125,6 +139,21 @@ html, body, [class*="css"] {
     font-weight: 700;
 }
 
+.centered-img { text-align: center; margin-top: 8px; margin-bottom: 12px; }
+
+.three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
+
+.brand { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,#ffb6d5,#ff8fc2);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:16px; }
+
+.congress-row { display:flex; gap:12px; align-items:center; margin-bottom:8px; }
+.party-pill { padding:6px 10px; border-radius:999px; color:#fff; font-weight:700; font-family:'Inter',sans-serif; }
+.dem { background: linear-gradient(90deg,#4b9bd6,#2b7fbf); }
+.rep { background: linear-gradient(90deg,#f28b6b,#e65a3b); }
+.ind { background: linear-gradient(90deg,#9b9b9b,#6f6f6f); }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -168,7 +197,6 @@ tz_choice = st.sidebar.selectbox(
     )
 )
 
-# Save preferences button
 if st.sidebar.button("Save Preferences"):
     save_prefs({
         "feed_choice": feed_choice,
@@ -182,68 +210,74 @@ if st.sidebar.button("Save Preferences"):
 
 # ---------- Header ----------
 st.markdown("""
-<div style='display:flex;align-items:center;gap:12px;margin-bottom:12px;'>
-    <div style='width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,#ffb6d5,#ff8fc2);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:16px;'>NY</div>
-    <div style='font-size:1.2rem;font-weight:700;'>NYT Dashboard</div>
+<div class='brand'>
+  <div class='logo'>NY</div>
+  <div style='font-size:1.2rem;font-weight:700;'>NYT Dashboard</div>
 </div>
 """, unsafe_allow_html=True)
 
 # ---------- Fetch Articles ----------
-feed_url = NYT_FEEDS[feed_choice]
+feed_url = NYT_FEEDS.get(feed_choice, NYT_FEEDS["Top Stories"])
 articles = fetch_rss(feed_url)[:num_articles]
 
-# ---------- Tabs ----------
+# ---------- Tabs: News + Congress ----------
 tab_news, tab_congress = st.tabs(["News", "Congress"])
 
-# ============================================================
+# -----------------------
 # NEWS TAB
-# ============================================================
+# -----------------------
 with tab_news:
     if layout_choice == "3-up grid":
-        cols = st.columns(3)
-        for i, art in enumerate(articles):
-            with cols[i % 3]:
-                st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                st.markdown(f"<div class='heading-box'>{art['title']}</div>", unsafe_allow_html=True)
+        st.markdown("<div class='three-col-grid'>", unsafe_allow_html=True)
+        for art in articles:
+            st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+            st.markdown(f"<div class='heading-box'>{art.get('title') or ''}</div>", unsafe_allow_html=True)
 
-                if show_images and art["media"]:
-                    st.image(art["media"], width=image_width)
+            if show_images and art.get("media"):
+                try:
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                except Exception:
+                    pass
 
-                if art["summary"]:
-                    st.write(art["summary"][:250] + "…")
+            if art.get("summary"):
+                st.write((art.get("summary") or "")[:250] + ("…" if len(art.get("summary") or "") > 250 else ""))
 
-                st.markdown(
-                    f"<button class='open-button' onclick=\"window.location.href='{art['link']}'\">Open</button>",
-                    unsafe_allow_html=True
-                )
+            st.markdown(
+                f"<div style='display:flex;justify-content:center;margin-top:10px;'><button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button></div>",
+                unsafe_allow_html=True,
+            )
 
-                st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     else:
         for art in articles:
             st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-            st.markdown(f"<div class='heading-box'>{art['title']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='heading-box'>{art.get('title') or ''}</div>", unsafe_allow_html=True)
 
-            if show_images and art["media"]:
-                st.image(art["media"], width=image_width)
+            if show_images and art.get("media"):
+                try:
+                    st.markdown(f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>", unsafe_allow_html=True)
+                except Exception:
+                    pass
 
-            if art["summary"]:
-                st.write(art["summary"][:400] + "…")
+            if art.get("summary"):
+                st.write((art.get("summary") or "")[:400] + ("…" if len(art.get("summary") or "") > 400 else ""))
 
             st.markdown(
-                f"<button class='open-button' onclick=\"window.location.href='{art['link']}'\">Open</button>",
-                unsafe_allow_html=True
+                f"<div style='display:flex;justify-content:center;margin-top:10px;'><button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button></div>",
+                unsafe_allow_html=True,
             )
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-# ============================================================
+# -----------------------
 # CONGRESS TAB
-# ============================================================
+# -----------------------
 with tab_congress:
     st.markdown("## Current U.S. Congress Makeup")
 
-    # These values reflect the 119th Congress (2025–2027)
+    # Example static values (update as needed)
     senate = {
         "Democrats": 51,
         "Republicans": 49,
@@ -254,14 +288,16 @@ with tab_congress:
         "Republicans": 222,
     }
 
-    def chamber_chart(data: Dict, title: str):
-        df = [{"Party": k, "Seats": v} for k, v in data.items()]
+    def chamber_chart(data: Dict[str, int], title: str):
+        # Use pandas DataFrame so Altair can infer types
+        df = pd.DataFrame([{"Party": k, "Seats": v} for k, v in data.items()])
+
         chart = (
-            alt.Chart(alt.Data(values=df))
+            alt.Chart(df)
             .mark_bar(cornerRadius=6)
             .encode(
                 x=alt.X("Party:N", sort=None),
-                y="Seats:Q",
+                y=alt.Y("Seats:Q"),
                 color=alt.Color(
                     "Party:N",
                     scale=alt.Scale(
@@ -269,13 +305,30 @@ with tab_congress:
                         range=["#4b9bd6", "#e65a3b"]
                     )
                 ),
-                tooltip=["Party", "Seats"]
+                tooltip=[alt.Tooltip("Party:N"), alt.Tooltip("Seats:Q")]
             )
-            .properties(width=400, height=300, title=title)
+            .properties(width=420, height=320, title=title)
         )
         st.altair_chart(chart, use_container_width=False)
 
-    chamber_chart(senate, "Senate Composition")
-    chamber_chart(house, "House Composition")
+    # Render charts side by side if space allows
+    col1, col2 = st.columns(2)
+    with col1:
+        chamber_chart(senate, "Senate Composition")
+    with col2:
+        chamber_chart(house, "House Composition")
 
-    st.caption("Data reflects the current 119th U.S. Congress (2025–2027).")
+    # Simple numeric summary and party pills
+    st.markdown("---")
+    st.markdown("### Quick Summary")
+    s_dem = senate.get("Democrats", 0)
+    s_rep = senate.get("Republicans", 0)
+    h_dem = house.get("Democrats", 0)
+    h_rep = house.get("Republicans", 0)
+
+    st.markdown(f"<div class='congress-row'><div class='party-pill dem'>Senate Democrats: {s_dem}</div><div class='party-pill rep'>Senate Republicans: {s_rep}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='congress-row'><div class='party-pill dem'>House Democrats: {h_dem}</div><div class='party-pill rep'>House Republicans: {h_rep}</div></div>", unsafe_allow_html=True)
+
+    st.caption("Seat counts are illustrative; update the `senate` and `house` dictionaries with live data as needed.")
+
+# ---------- End of file ----------
