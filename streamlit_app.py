@@ -295,17 +295,9 @@ st.markdown(
       font-family: 'Inter', sans-serif;
     }
 
-    /* --- Flat, boundaryless cards with even column heights --- */
+    /* --- Article layout: centered title + image + subtext --- */
 
-    /* Container grid: zero gap so cards sit flush; columns stretch to equal height */
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: stretch; }
-
-    /* Responsive fallbacks */
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
-
-    /* Article card: remove borders/shadows and make each card fill its column height.
-       Center content (title, image, subtext) vertically and horizontally. */
+    /* Ensure card centers its content */
     .article-card {
       background: transparent;
       border: none;
@@ -319,26 +311,20 @@ st.markdown(
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
-      align-items: center;            /* center horizontally */
-      text-align: center;            /* center text */
+      align-items: center;      /* center horizontally */
+      text-align: center;       /* center text */
       height: 100%;
       flex: 1 1 auto;
-      min-height: 0; /* important for flex children to allow proper shrinking */
+      min-height: 0;
     }
 
-    /* Ensure no hover lift or visual separation */
-    .article-card:hover {
-      transform: none;
-      box-shadow: none;
-    }
-
-    /* Heading box: stronger, more noticeable and matched to NY logo gradient */
+    /* Heading box: full width but centered text */
     .heading-box {
       background: linear-gradient(180deg, var(--accent), var(--accent-strong));
       color: #ffffff;
       padding: 10px 12px;
       border-radius: 8px;
-      display: block;                /* full-width block so title centers */
+      display: block;
       width: 100%;
       margin-bottom: 8px;
       font-weight: 800;
@@ -346,8 +332,6 @@ st.markdown(
       box-shadow: 0 6px 18px rgba(255,143,194,0.12);
       border: 1px solid rgba(255,143,194,0.12);
     }
-
-    /* Title/link inside heading: center and high contrast */
     .heading-box a.article-link, .heading-box strong {
       color: #ffffff;
       text-decoration: none;
@@ -355,25 +339,31 @@ st.markdown(
       text-align: center;
     }
 
-    /* Muted and summary spacing tightened and centered */
-    .muted {
-      color: var(--muted);
-      font-size: 0.9rem;
-      margin-bottom: 6px;
-      display:block;
-      font-family: 'Inter', sans-serif;
-      opacity: 0.95;
-      text-align: center;
+    /* Title/link outside heading remains centered too */
+    a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
+    a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
+
+    /* Image handling: force centered rendering and constrain size */
+    .article-card img,
+    .article-card > img,
+    .article-card img[src],
+    .article-card .stImage,
+    .article-card .stImage img,
+    .article-card .element-container img {
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+      margin-top: 8px;
+      margin-bottom: 8px;
       width: 100%;
+      max-width: 100%;
+      max-height: 140px;       /* adjust if you want taller/shorter thumbnails */
+      object-fit: cover;
+      border-radius: 6px;
+      flex: 0 0 auto;
     }
 
-    /*
-      Summary: always reserve space for 4 lines.
-      - Use line-clamp to visually limit to 4 lines.
-      - Use min-height based on 4 lines (using em so it scales with font-size).
-      - Keep overflow hidden so shorter summaries still occupy the reserved space.
-      - Center text and ensure it doesn't force column growth.
-    */
+    /* Keep summary centered and reserve 4 lines of space */
     .summary {
       color: #3b2a2f;
       font-size: 0.96rem;
@@ -384,80 +374,22 @@ st.markdown(
       display: -webkit-box;
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 4;
-      /* Reserve space for 4 lines even if content is shorter */
       min-height: calc(1.45em * 4);
-      /* keep summary centered */
       text-align: center;
-      /* allow the summary to take fixed space but not force column growth */
       flex: 0 0 auto;
       width: 100%;
     }
 
-    /* Image handling: constrain height, preserve aspect, center, and avoid expanding card */
-    .article-card img, .article-card > img, .article-card img[src] {
-      width: 100%;
-      max-height: 140px; /* adjust as needed */
-      object-fit: cover;
-      display: block;
-      margin: 8px auto; /* center image horizontally */
-      border-radius: 6px;
-      flex: 0 0 auto;
-    }
+    /* Ensure column wrappers allow cards to stretch (broad selectors for Streamlit versions) */
+    [data-testid="column"] > div { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    [data-testid="column"] { height: 100%; min-height: 0; }
+    [data-testid="column"] > div > div { flex: 1 1 auto; min-height: 0; display:flex; flex-direction:column; align-items:stretch; }
+    .stColumns > div, .css-1lcbmhc > div { height: 100%; display:flex; flex-direction:column; min-height:0; }
+    .stColumns > div > div, .css-1lcbmhc > div > div { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; align-items:stretch; }
 
-    /* If you use st.image (which wraps images in <img>), target the wrapper too */
-    .article-card .stImage img, .article-card .element-container img {
-      width: 100%;
-      max-height: 140px;
-      object-fit: cover;
-      display: block;
-      margin: 8px auto;
-      border-radius: 6px;
-      flex: 0 0 auto;
-    }
-
-    /* Make the title link tappable but keep it boundaryless */
-    a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
-
-    /* Ensure Streamlit column wrappers stretch and allow cards to fill height */
-    /* These selectors are intentionally broad to work across Streamlit versions */
-    [data-testid="column"] > div {
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-    [data-testid="column"] {
-      height: 100%;
-      min-height: 0;
-    }
-    /* Additional fallback: target common Streamlit column wrapper patterns */
-    .stColumns > div, .css-1lcbmhc > div {
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-    /* Ensure the immediate wrapper inside a column lets the article-card stretch */
-    [data-testid="column"] > div > div {
-      flex: 1 1 auto;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .stColumns > div > div, .css-1lcbmhc > div > div {
-      flex: 1 1 auto;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    /* Small spacing for single-column layout only (keeps list readable) */
-    @media (max-width: 700px) {
-      .article-card { padding: 10px; }
-    }
+    /* Responsive tweaks */
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
