@@ -228,13 +228,14 @@ def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
 if "show_sidebar" not in st.session_state:
     st.session_state["show_sidebar"] = True
 
-# ---------- Page config and theme CSS ----------
+# ---------- Page config and modernized CSS (font + button changes) ----------
 st.set_page_config(page_title="NYT Dashboard", layout="wide")
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
     :root{
       --bg:#fff7fb;
       --card:#ffffff;
@@ -249,11 +250,15 @@ st.markdown(
       --action-pink: #ff8fc2;
       --action-pink-strong: #ff5fae;
     }
+
+    /* Modern font usage */
     html, body, [class*="css"]  {
       background: var(--bg);
       color: var(--text);
       font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
       line-height: 1.6;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
 
     /* Sidebar */
@@ -266,6 +271,7 @@ st.markdown(
     .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
       background: #0f0f0f;
       color: var(--sidebar-text);
+      font-family: 'Inter', sans-serif;
     }
 
     /* Article card: aesthetic box */
@@ -277,6 +283,7 @@ st.markdown(
       border: 1px solid var(--border);
       margin-bottom: 18px;
       transition: transform 0.12s ease;
+      font-family: 'Inter', sans-serif;
     }
     .article-card:hover {
       transform: translateY(-4px);
@@ -288,25 +295,33 @@ st.markdown(
       border-radius: 8px;
       display: inline-block;
       margin-bottom: 10px;
+      font-weight: 700;
+      font-family: 'Inter', sans-serif;
     }
 
-    .muted { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; display:block; }
-    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; }
+    .muted { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; display:block; font-family: 'Inter', sans-serif; }
+    .summary { color: #3b2a2f; font-size: 0.98rem; line-height: 1.6; margin-top: 8px; font-family: 'Inter', sans-serif; }
 
-    /* Buttons (Open anchor styled) */
+    /* Open button: not a hyperlink, styled native button with modern font */
     .open-button {
       background: linear-gradient(180deg, var(--action-pink), var(--action-pink-strong));
       color: #fff;
       border: none;
-      padding: 8px 14px;
-      border-radius: 10px;
-      font-weight: 600;
+      padding: 10px 16px;
+      border-radius: 999px;
+      font-weight: 700;
       cursor: pointer;
       text-decoration: none;
-      display: inline-block;
+      display: inline-flex;
+      align-items:center;
+      gap:8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      box-shadow: 0 8px 20px rgba(255,143,194,0.12);
     }
+    .open-button:hover { transform: translateY(-2px); }
 
-    a.article-link { text-decoration: none; color: var(--text); }
+    a.article-link { text-decoration: none; color: var(--text); font-family: 'Inter', sans-serif; }
     a.article-link:hover { text-decoration: underline; }
 
     /* layout helpers */
@@ -316,6 +331,11 @@ st.markdown(
     @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
     .single-col-list { display: block; gap: 12px; }
+
+    /* header modernized */
+    .top-header { margin-bottom: 12px; }
+    .brand { display:flex; align-items:center; gap:12px; font-family: 'Inter', sans-serif; }
+    .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
 
     </style>
     """,
@@ -348,9 +368,10 @@ with st.sidebar:
     st.markdown("### Timezone")
     tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=0)
     if tz_choice != "System" and not ZONEINFO_AVAILABLE and 'pytz' not in globals():
-        st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times may show in UTC or system timezone.")
+        st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times will show in UTC or system timezone.")
     st.markdown("---")
     st.markdown("### Summarize")
+    st.write("Create a short summary of the aggregated headlines and short summaries.")
     summary_length = st.slider("Summary sentences", 1, 6, 3)
     if st.button("Summarize headlines"):
         st.session_state["_summarize_now"] = True
@@ -368,7 +389,10 @@ elif text_size == "Extra large":
     st.markdown("<style> .article-card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
 
 # ---------- Top header ----------
-st.markdown("<div class='heading-box'><h2 style='margin:0;'>NYT Dashboard</h2></div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='top-header'><div class='brand'><div class='logo'>NY</div><div style='font-weight:700;font-size:1.05rem;'>NYT Dashboard</div></div></div>",
+    unsafe_allow_html=True,
+)
 
 # ---------- Fetch and aggregate ----------
 feed_url = NYT_FEEDS.get(feed_choice, NYT_FEEDS["Top Stories"])
@@ -428,32 +452,64 @@ summary_result = None
 if summarize_now:
     summary_result = summarize_articles(filtered, max_sentences=summary_length)
 
-# ---------- Render results (no bookmarks) ----------
-if summary_result:
-    with st.expander("Summary of aggregated headlines"):
-        st.markdown(f"**Summary:** {summary_result['summary']}")
-        if summary_result["top_keywords"]:
-            kw_line = ", ".join(f"{k} ({round(v,2)})" for k, v in summary_result["top_keywords"])
-            st.markdown(f"**Top keywords:** {kw_line}")
+# ---------- Long-scroll rendering (either grid or single-column list) ----------
+tab1, tab2 = st.tabs(["Results", "Bookmarks"])
+with tab1:
+    if summary_result:
+        with st.expander("Summary of aggregated headlines"):
+            st.markdown(f"**Summary:** {summary_result['summary']}")
+            if summary_result["top_keywords"]:
+                kw_line = ", ".join(f"{k} ({round(v,2)})" for k, v in summary_result["top_keywords"])
+                st.markdown(f"**Top keywords:** {kw_line}")
 
-if not filtered:
-    st.info("No articles match your filters.")
-else:
-    if layout_choice == "3-up grid (3 per row)":
-        cols = st.columns(3)
-        for idx, art in enumerate(filtered):
-            col = cols[idx % 3]
-            with col:
-                # Article card container
+    if not filtered:
+        st.info("No articles match your filters.")
+    else:
+        if layout_choice == "3-up grid (3 per row)":
+            cols = st.columns(3)
+            for idx, art in enumerate(filtered):
+                col = cols[idx % 3]
+                with col:
+                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
+                        unsafe_allow_html=True,
+                    )
+                    meta = []
+                    if art.get("source"):
+                        meta.append(f"{art['source']}")
+                    if art.get("published_dt"):
+                        meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
+                    if meta:
+                        st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
+                    if show_images and art.get("media"):
+                        try:
+                            st.image(art["media"], width=int(image_width))
+                        except Exception:
+                            pass
+                    if art.get("summary"):
+                        st.markdown(
+                            f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # Open button: native button element that navigates same-tab (no hyperlink text)
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
+                        f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+        else:  # Simple single-column list
+            for idx, art in enumerate(filtered):
                 st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-
-                # Title with heading box
                 st.markdown(
-                    f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
-
-                # Meta line (source + time)
                 meta = []
                 if art.get("source"):
                     meta.append(f"{art['source']}")
@@ -461,67 +517,70 @@ else:
                     meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
                 if meta:
                     st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-
-                # Centered image
                 if show_images and art.get("media"):
-                    st.markdown(
-                        f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # Summary
+                    try:
+                        st.image(art["media"], width=int(image_width))
+                    except Exception:
+                        pass
                 if art.get("summary"):
                     st.markdown(
-                        f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
+                        f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
                         unsafe_allow_html=True,
                     )
 
-                # Action stack: Open (anchor) centered, vertical spacing
                 st.markdown(
-                    "<div class='action-stack'>"
-                    f"<a class='open-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer'>Open</a>"
-                    "</div>",
+                    f"<div style='display:flex;justify-content:center;margin-top:10px;'>"
+                    f"<button class='open-button' onclick=\"window.location.href='{art.get('link')}'\">Open</button>"
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
 
                 st.markdown("</div>", unsafe_allow_html=True)
 
-    else:  # Simple single-column list
-        for idx, art in enumerate(filtered):
-            st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-
-            st.markdown(
-                f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
-                unsafe_allow_html=True,
-            )
-
-            meta = []
-            if art.get("source"):
-                meta.append(f"{art['source']}")
-            if art.get("published_dt"):
-                meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
-            if meta:
-                st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-
-            if show_images and art.get("media"):
+with tab2:
+    bookmarks = list(st.session_state.get("bookmarks", {}).values())
+    if not bookmarks:
+        st.info("No bookmarks yet.")
+    else:
+        if layout_choice == "3-up grid (3 per row)":
+            cols = st.columns(3)
+            for idx, art in enumerate(bookmarks):
+                col = cols[idx % 3]
+                with col:
+                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
+                        unsafe_allow_html=True,
+                    )
+                    if art.get("media") and show_images:
+                        try:
+                            st.image(art["media"], width=int(image_width))
+                        except Exception:
+                            pass
+                    if art.get("summary"):
+                        st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
+                    if st.button("Remove", key=f"remove_{idx}"):
+                        # bookmark removal helper (if bookmarks exist)
+                        if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
+                            del st.session_state["bookmarks"][art.get("link")]
+                    st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            for idx, art in enumerate(bookmarks):
+                st.markdown("<div class='article-card'>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<div class='centered-img'><img src='{art.get('media')}' width='{int(image_width)}' style='max-width:100%;height:auto;border-radius:8px;'/></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
+                if art.get("media") and show_images:
+                    try:
+                        st.image(art["media"], width=int(image_width))
+                    except Exception:
+                        pass
+                if art.get("summary"):
+                    st.markdown(f"<div class='summary'>{(art.get('summary') or '')[:400]}</div>", unsafe_allow_html=True)
+                if st.button("Remove", key=f"remove_list_{idx}"):
+                    if "bookmarks" in st.session_state and art.get("link") in st.session_state["bookmarks"]:
+                        del st.session_state["bookmarks"][art.get("link")]
+                st.markdown("</div>", unsafe_allow_html=True)
 
-            if art.get("summary"):
-                st.markdown(
-                    f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                "<div class='action-stack'>"
-                f"<a class='open-button' href='{art.get('link')}' target='_self' rel='noopener noreferrer'>Open</a>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-st.caption("Choose Top Stories or Politics, pick a layout, and click Open to go directly to the full NYT article.")
+st.caption("Open now uses a native, styled button (no hyperlink text). The UI uses a modern Inter font across headings and body.")
