@@ -114,7 +114,6 @@ def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
     for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z"):
         try:
             dt = datetime.strptime(s, fmt)
-            # If format had 'Z' or timezone offset, try to make it timezone-aware
             if fmt.endswith("Z") or fmt.endswith("%z"):
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
@@ -130,10 +129,8 @@ def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
     return None
 
 def to_timezone(dt: Optional[datetime], tz_name: str) -> Optional[datetime]:
-    """Convert a datetime to the named timezone. If tz_name == 'System', use local system tz."""
     if not dt:
         return None
-    # If dt is naive, assume UTC (RSS often uses UTC)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     if tz_name == "System":
@@ -141,10 +138,9 @@ def to_timezone(dt: Optional[datetime], tz_name: str) -> Optional[datetime]:
     try:
         if ZONEINFO_AVAILABLE:
             return dt.astimezone(ZoneInfo(tz_name))
-        elif pytz:
+        elif 'pytz' in globals() and pytz:
             return dt.astimezone(pytz.timezone(tz_name))
     except Exception:
-        # fallback to UTC
         return dt.astimezone(timezone.utc)
 
 def format_dt_for_display(dt: Optional[datetime], tz_name: str) -> str:
@@ -153,7 +149,6 @@ def format_dt_for_display(dt: Optional[datetime], tz_name: str) -> str:
     converted = to_timezone(dt, tz_name)
     if not converted:
         return ""
-    # Example format: 2026-02-10 15:59 EST
     tz_abbr = converted.tzname() or ""
     return converted.strftime(f"%Y-%m-%d %H:%M {tz_abbr}")
 
@@ -334,7 +329,6 @@ with st.sidebar:
     st.markdown("### Timezone")
     st.write("Choose how published times are displayed.")
     tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=0)
-    # If zoneinfo not available and user selected a non-System timezone, warn
     if tz_choice != "System" and not ZONEINFO_AVAILABLE and 'pytz' not in globals():
         st.warning("Timezone conversion requires Python 3.9+ (zoneinfo) or pytz installed. Times will show in UTC or system timezone.")
     st.markdown("---")
@@ -361,7 +355,7 @@ if text_size == "Large":
 elif text_size == "Extra large":
     st.markdown("<style> .card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
 
-# ---------- Top header ----------
+# ---------- Top header: NYT Dashboard with heading-box ----------
 st.markdown("<div class='heading-box'><h2 style='margin:0;'>NYT Dashboard</h2></div>", unsafe_allow_html=True)
 
 # ---------- Fetch and aggregate ----------
@@ -382,7 +376,6 @@ for it in all_items:
     if not link or link in seen:
         continue
     seen.add(link)
-    # prefer structured published time if available
     pub_dt = None
     if it.get("published_struct"):
         try:
@@ -416,7 +409,6 @@ elif sort_by == "Oldest":
 else:
     filtered.sort(key=lambda x: (x.get("source") or "").lower())
 
-# cap to user preference and safety cap
 cap = min(num_articles, MAX_AGGREGATE)
 filtered = filtered[:cap]
 
@@ -446,7 +438,7 @@ with tab1:
                 with col:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_blank'><strong>{art.get('title')}</strong></a></div>",
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
                     )
                     meta = []
@@ -466,17 +458,25 @@ with tab1:
                             f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
                             unsafe_allow_html=True,
                         )
-                    if st.button("Open", key=f"open_{idx}", help="Open article in new tab"):
-                        st.experimental_set_query_params(url=art.get("link"))
+                    # Open as same-tab redirect using an HTML anchor styled like the app buttons
+                    st.markdown(
+                        f"<div style='display:flex;gap:8px;margin-top:10px;'>"
+                        f"<a href='{art.get('link')}' target='_self' style='text-decoration:none;'>"
+                        f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                        f"</a>",
+                        unsafe_allow_html=True,
+                    )
+                    # Save button remains a Streamlit widget so it updates session_state
                     if st.button("★ Save", key=f"save_{idx}"):
                         toggle_bookmark(art)
+                    st.markdown("</div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
         else:  # Simple single-column list
             for idx, art in enumerate(filtered):
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_blank'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
                 meta = []
@@ -496,10 +496,16 @@ with tab1:
                         f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
                         unsafe_allow_html=True,
                     )
-                if st.button("Open", key=f"open_list_{idx}", help="Open article in new tab"):
-                    st.experimental_set_query_params(url=art.get("link"))
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;margin-top:10px;'>"
+                    f"<a href='{art.get('link')}' target='_self' style='text-decoration:none;'>"
+                    f"<button style='background:linear-gradient(180deg,var(--action-pink),var(--action-pink-strong));color:#fff;border:none;padding:8px 12px;border-radius:10px;font-weight:600;'>Open</button>"
+                    f"</a>",
+                    unsafe_allow_html=True,
+                )
                 if st.button("★ Save", key=f"save_list_{idx}"):
                     toggle_bookmark(art)
+                st.markdown("</div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 with tab2:
@@ -514,7 +520,7 @@ with tab2:
                 with col:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_blank'><strong>{art.get('title')}</strong></a></div>",
+                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
                         unsafe_allow_html=True,
                     )
                     if art.get("media") and show_images:
@@ -531,7 +537,7 @@ with tab2:
             for idx, art in enumerate(bookmarks):
                 st.markdown("<div class='card'>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_blank'><strong>{art.get('title')}</strong></a></div>",
+                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self'><strong>{art.get('title')}</strong></a></div>",
                     unsafe_allow_html=True,
                 )
                 if art.get("media") and show_images:
@@ -545,4 +551,4 @@ with tab2:
                     toggle_bookmark(art)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-st.caption("Choose '3-up grid' for a three-across long scroll or 'Simple list' for a single-column feed. Times display in the selected timezone.")
+st.caption("Open now redirects you directly to the NYT article in the same tab. Use Save to bookmark items in this session.")
