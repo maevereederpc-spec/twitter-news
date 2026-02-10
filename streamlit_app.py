@@ -295,9 +295,19 @@ st.markdown(
       font-family: 'Inter', sans-serif;
     }
 
-    /* --- Article layout: centered title + image + subtext --- */
+    /* --- Grid and column behavior --- */
+    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: start; }
+    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
 
-    /* Ensure card centers its content */
+    /* Ensure Streamlit column wrappers allow children to stretch to equal heights */
+    [data-testid="column"] > div { height: 100%; display: flex; flex-direction: column; min-height: 0; align-items: stretch; }
+    [data-testid="column"] { height: 100%; min-height: 0; align-items: stretch; }
+    [data-testid="column"] > div > div { flex: 1 1 auto; min-height: 0; display:flex; flex-direction:column; align-items:stretch; }
+    .stColumns > div, .css-1lcbmhc > div { height: 100%; display:flex; flex-direction:column; min-height:0; align-items:stretch; }
+    .stColumns > div > div, .css-1lcbmhc > div > div { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; align-items:stretch; }
+
+    /* --- Article card: stretch to fill column and align content top --- */
     .article-card {
       background: transparent;
       border: none;
@@ -310,42 +320,49 @@ st.markdown(
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      justify-content: flex-start;
-      align-items: center;      /* center horizontally */
-      text-align: center;       /* center text */
+      justify-content: flex-start; /* keep content at top so headings align */
+      align-items: stretch;        /* allow heading box to be full width and align across row */
+      text-align: center;
       height: 100%;
       flex: 1 1 auto;
       min-height: 0;
     }
+    .article-card:hover { transform: none; box-shadow: none; }
 
-    /* Heading box: full width but centered text */
+    /* --- Heading box: fixed visual height so all headings align across the row --- */
+    /* Adjust min-height to match the maximum number of title lines you want to allow.
+       Here we reserve space for up to ~3 lines of title comfortably; increase if needed. */
     .heading-box {
       background: linear-gradient(180deg, var(--accent), var(--accent-strong));
       color: #ffffff;
       padding: 10px 12px;
       border-radius: 8px;
-      display: block;
+      display: flex;
+      align-items: center;       /* vertically center title inside the heading box */
+      justify-content: center;   /* horizontally center title */
       width: 100%;
       margin-bottom: 8px;
       font-weight: 800;
       letter-spacing: -0.2px;
       box-shadow: 0 6px 18px rgba(255,143,194,0.12);
       border: 1px solid rgba(255,143,194,0.12);
+      min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
+      box-sizing: border-box;
     }
     .heading-box a.article-link, .heading-box strong {
       color: #ffffff;
       text-decoration: none;
       display: block;
       text-align: center;
+      line-height: 1.15;
+      word-break: break-word;
     }
 
-    /* Title/link outside heading remains centered too */
+    /* Title/link outside heading remains centered and constrained */
     a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
     a.article-link:hover { background: rgba(255,143,194,0.03); text-decoration: none; }
 
-    /* --- Strong centering for Streamlit image wrappers and raw <img> --- */
-
-    /* Target Streamlit image wrapper (figure-like) and force center */
+    /* --- Image centering and responsive behavior --- */
     .article-card .stImage,
     .article-card .element-container,
     .article-card figure,
@@ -357,10 +374,6 @@ st.markdown(
       margin: 0 !important;
       padding: 0 !important;
     }
-
-    /* Target the actual <img> elements and force centered layout
-       UNCAP max size: remove max-height constraint and allow natural image height.
-       Keep width behavior responsive so images respect the width you pass to st.image. */
     .article-card img,
     .article-card .stImage img,
     .article-card .element-container img,
@@ -373,25 +386,14 @@ st.markdown(
       width: auto !important;
       max-width: 100% !important;
       height: auto !important;
-      max-height: none !important; /* UNCAP the max size */
+      max-height: none !important;
       object-fit: contain !important;
       border-radius: 6px !important;
       flex: 0 0 auto !important;
     }
+    .article-card img[width] { width: auto !important; max-width: 100% !important; height: auto !important; }
 
-    /* If Streamlit injects inline width attributes, override them for centering */
-    .article-card img[width] {
-      width: auto !important;
-      max-width: 100% !important;
-      height: auto !important;
-    }
-
-    /* Keep heading and summary centered */
-    .heading-box, .heading-box a.article-link, .muted, .summary {
-      text-align: center !important;
-    }
-
-    /* Keep summary centered and reserve 8 lines of space */
+    /* --- Summary: reserve 8 lines of space and center --- */
     .summary {
       color: #3b2a2f;
       font-size: 0.96rem;
@@ -401,24 +403,21 @@ st.markdown(
       overflow: hidden;
       display: -webkit-box;
       -webkit-box-orient: vertical;
-      -webkit-line-clamp: 8; /* show up to 8 lines visually */
-      /* Reserve space for 8 lines even if content is shorter */
+      -webkit-line-clamp: 8;
       min-height: calc(1.45em * 8);
       text-align: center;
       flex: 0 0 auto;
       width: 100%;
     }
 
-    /* Ensure column wrappers allow cards to stretch (broad selectors for Streamlit versions) */
-    [data-testid="column"] > div { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-    [data-testid="column"] { height: 100%; min-height: 0; }
-    [data-testid="column"] > div > div { flex: 1 1 auto; min-height: 0; display:flex; flex-direction:column; align-items:stretch; }
-    .stColumns > div, .css-1lcbmhc > div { height: 100%; display:flex; flex-direction:column; min-height:0; }
-    .stColumns > div > div, .css-1lcbmhc > div > div { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; align-items:stretch; }
+    /* Muted meta centered */
+    .muted { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; text-align:center; }
 
-    /* Responsive tweaks */
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } .article-card { padding:10px; } .article-card img, .article-card .stImage img { max-height: none !important; } }
+    /* Small spacing for single-column layout only */
+    @media (max-width: 700px) {
+      .article-card { padding: 10px; }
+      .heading-box { min-height: calc(1.15em * 2.6); } /* slightly smaller on narrow screens */
+    }
 
     /* header modernized */
     .top-header { margin-bottom: 12px; }
