@@ -2,638 +2,1214 @@ import streamlit as st
 
 import streamlit as st
 
-# app.py
-import time
-import re
-import os
-import json
-from typing import List, Dict, Optional
-from urllib.parse import urlparse
-import feedparser
-import requests
-from newspaper import Article
-from bs4 import BeautifulSoup
 import streamlit as st
-from datetime import datetime, timedelta, timezone
-import math
+import feedparser
+import pandas as pd
+from datetime import datetime, timedelta
+import plotly.express as px
+import plotly.graph_objects as go
 from collections import Counter
+import re
+from textblob import TextBlob
+import time
 
-# ---------- Timezone support ----------
-try:
-    from zoneinfo import ZoneInfo  # Python 3.9+
-    ZONEINFO_AVAILABLE = True
-except Exception:
-    ZONEINFO_AVAILABLE = False
-    try:
-        import pytz  # fallback
-        ZoneInfo = None
-    except Exception:
-        pytz = None
+# Page config
+st.set_page_config(
+    page_title="NYT Politics Dashboard",
+    page_icon="📰",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ---------- Configuration ----------
-NYT_FEEDS = {
-    "Top Stories": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
-    "Politics": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
-}
-USER_AGENT = "NYT-RSS-Explorer/1.0"
-HEADERS = {"User-Agent": USER_AGENT}
-CACHE_TTL = 600
-POLITE_DELAY = 0.25
-DEFAULT_THUMB_WIDTH = 220
-MAX_AGGREGATE = 200  # safety cap to avoid extremely long pages
-
-# Preferences persistence file
-PREFS_FILE = "user_prefs.json"
-
-# Defensive lxml check (warn if missing)
-try:
-    import lxml.html.clean  # noqa: F401
-except Exception:
-    import warnings
-    warnings.warn("lxml.html.clean not available. Install lxml_html_clean or pin lxml<5 for full newspaper3k support.")
-
-# ---------- Helpers: RSS and extraction ----------
-@st.cache_data(ttl=CACHE_TTL)
-def fetch_rss(url: str) -> List[Dict]:
-    parsed = feedparser.parse(url)
-    items = []
-    for entry in parsed.entries:
-        items.append({
-            "title": entry.get("title"),
-            "link": entry.get("link"),
-            "published": entry.get("published"),
-            "summary": entry.get("summary") or entry.get("description"),
-            "source": parsed.feed.get("title"),
-            "media": _extract_media(entry),
-            "published_struct": entry.get("published_parsed")
-        })
-    return items
-
-def _extract_media(entry: dict) -> Optional[str]:
-    media = entry.get("media_content") or entry.get("media_thumbnail")
-    if media and isinstance(media, list) and media:
-        m = media[0]
-        return m.get("url") or m.get("value")
-    enc = entry.get("enclosures")
-    if enc and isinstance(enc, list) and enc:
-        return enc[0].get("href")
-    summary = entry.get("summary", "")
-    if "<img" in summary:
-        soup = BeautifulSoup(summary, "html.parser")
-        img = soup.find("img")
-        if img and img.get("src"):
-            return img.get("src")
-    return None
-
-@st.cache_data(ttl=CACHE_TTL)
-def extract_article_text(url: str) -> Dict:
-    try:
-        art = Article(url)
-        art.download()
-        art.parse()
-        return {
-            "title": art.title,
-            "text": art.text,
-            "top_image": art.top_image,
-            "publish_date": art.publish_date.isoformat() if art.publish_date else None,
-            "authors": art.authors,
-            "url": url
-        }
-    except Exception:
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-            title = (soup.title.get_text(strip=True) if soup.title else None)
-            paragraphs = soup.select("article p") or soup.select("p")
-            text = "\n\n".join(p.get_text(strip=True) for p in paragraphs[:8])
-            og_image = soup.find("meta", property="og:image")
-            top_image = og_image["content"] if og_image and og_image.get("content") else None
-            meta_pub = soup.find("meta", {"name": "ptime"}) or soup.find("meta", {"itemprop": "datePublished"})
-            pub = meta_pub.get("content") if meta_pub and meta_pub.get("content") else None
-            return {"title": title, "text": text, "top_image": top_image, "publish_date": pub, "authors": [], "url": url}
-        except Exception:
-            return {}
-
-def parse_iso_date(s: Optional[str]) -> Optional[datetime]:
-    if not s:
-        return None
-    for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            dt = datetime.strptime(s, fmt)
-            if fmt.endswith("Z") or fmt.endswith("%z"):
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except Exception:
-            continue
-    try:
-        import time as _time
-        if isinstance(s, _time.struct_time):
-            return datetime.fromtimestamp(_time.mktime(s))
-    except Exception:
-        pass
-    return None
-
-def to_timezone(dt: Optional[datetime], tz_name: str) -> Optional[datetime]:
-    if not dt:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    if tz_name == "System":
-        return dt.astimezone()
-    try:
-        if ZONEINFO_AVAILABLE:
-            return dt.astimezone(ZoneInfo(tz_name))
-        elif 'pytz' in globals() and pytz:
-            return dt.astimezone(pytz.timezone(tz_name))
-    except Exception:
-        return dt.astimezone(timezone.utc)
-
-def format_dt_for_display(dt: Optional[datetime], tz_name: str) -> str:
-    if not dt:
-        return ""
-    converted = to_timezone(dt, tz_name)
-    if not converted:
-        return ""
-    tz_abbr = converted.tzname() or ""
-    return converted.strftime(f"%Y-%m-%d %H:%M {tz_abbr}")
-
-# ---------- Simple extractive summarizer ----------
-STOPWORDS = {
-    "the","and","to","of","a","in","for","on","with","is","as","by","at","from","that","it","be","are","was","an","has","have","its","this","new","will","after","over","about","more","up","into","than","but","not","who","which"
-}
-def tokenize(text: str) -> List[str]:
-    text = text.lower()
-    tokens = re.findall(r"[a-zA-Z0-9']{2,}", text)
-    return tokens
-def build_freq_map(texts: List[str]) -> Counter:
-    freq = Counter()
-    for t in texts:
-        for w in tokenize(t):
-            if w in STOPWORDS:
-                continue
-            freq[w] += 1
-    if not freq:
-        return freq
-    maxf = max(freq.values())
-    for k in list(freq.keys()):
-        freq[k] = freq[k] / maxf
-    return freq
-def split_sentences(text: str) -> List[str]:
-    parts = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [p.strip() for p in parts if p.strip()]
-def score_sentence(sent: str, freq_map: Counter) -> float:
-    tokens = tokenize(sent)
-    if not tokens:
-        return 0.0
-    score = 0.0
-    for t in tokens:
-        score += freq_map.get(t, 0.0)
-    return score / (len(tokens) ** 0.2)
-def summarize_articles(articles: List[Dict], max_sentences: int = 4) -> Dict:
-    if not articles:
-        return {"summary": "No articles to summarize.", "top_keywords": []}
-    pool_texts = []
-    for a in articles:
-        title = a.get("title") or ""
-        summary = a.get("summary") or ""
-        pool_texts.append(title)
-        for s in split_sentences(summary)[:3]:
-            pool_texts.append(s)
-    freq = build_freq_map(pool_texts)
-    candidates = []
-    for t in pool_texts:
-        for s in split_sentences(t):
-            candidates.append(s)
-    scored = []
-    seen = set()
-    for s in candidates:
-        key = s.lower()
-        if key in seen or len(s) < 20:
-            continue
-        seen.add(key)
-        scored.append((score_sentence(s, freq), s))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    chosen = []
-    for score, sent in scored:
-        if len(chosen) >= max_sentences:
-            break
-        low = sent.lower()
-        if any(low in c.lower() or c.lower() in low for c in chosen):
-            continue
-        chosen.append(sent)
-    if not chosen:
-        for a in articles[:max_sentences]:
-            if a.get("title"):
-                chosen.append(a["title"])
-    summary_paragraph = " ".join(chosen)
-    top_keywords = freq.most_common(8)
-    return {"summary": summary_paragraph, "top_keywords": top_keywords}
-
-# ---------- Session state ----------
-if "bookmarks" not in st.session_state:
-    st.session_state["bookmarks"] = {}
-if "show_sidebar" not in st.session_state:
-    st.session_state["show_sidebar"] = True
-if "page_index" not in st.session_state:
-    st.session_state["page_index"] = 0
-
-# ---------- Preferences persistence helpers ----------
-def load_prefs() -> Dict:
-    if os.path.exists(PREFS_FILE):
-        try:
-            with open(PREFS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_prefs(prefs: Dict):
-    try:
-        with open(PREFS_FILE, "w", encoding="utf-8") as f:
-            json.dump(prefs, f, indent=2)
-    except Exception:
-        pass
-
-_saved_prefs = load_prefs()
-
-# ---------- Page config and theme CSS ----------
-st.set_page_config(page_title="NYT Dashboard", layout="wide")
-
-st.markdown(
-    """
+# Custom CSS for wine red theme and enhanced styling
+st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-    :root{
-      /* Lavender theme: soft, cool purple tones */
-      --bg:#f6f3ff;
-      --card:#efe9ff;
-      --muted:#6b5b7b;
-      --accent:#b497ff;
-      --accent-strong:#8f63ff;
-      --text:#2b1f22;
-      --sidebar-black:#1b1330;
-      --sidebar-text:#f7f3ff;
-      --border: rgba(143,99,255,0.12);
-      --shadow: 0 10px 30px rgba(143,99,255,0.06);
-      --action-pink: #9b6bff;
-      --action-pink-strong: #7a3cff;
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;600&display=swap');
+    
+    .main {
+        padding: 0rem 1rem;
+        background: linear-gradient(135deg, #fafafa 0%, #f5f0f0 100%);
     }
-    html, body, [class*="css"]  {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      line-height: 1.6;
+    
+    .stMetric {
+        background: linear-gradient(135deg, #8B0000 0%, #a01010 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(139, 0, 0, 0.2);
+        border: none;
     }
-    .stSidebar {
-      background: linear-gradient(180deg, var(--sidebar-black), #2a1f3a);
-      color: var(--sidebar-text);
-      border-right: 1px solid rgba(255,255,255,0.04);
-      padding-top: 18px;
+    
+    .stMetric label {
+        color: #ffd6d6 !important;
+        font-weight: 600;
     }
-    .stSidebar .stTextInput>div>div>input, .stSidebar .stTextArea>div>div>textarea {
-      background: #241a33;
-      color: var(--sidebar-text);
-      font-family: 'Inter', sans-serif;
+    
+    .stMetric [data-testid="stMetricValue"] {
+        color: white !important;
+        font-size: 2rem !important;
     }
-
-    /* --- Grid and column behavior --- */
-    .three-col-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; align-items: start; }
-    @media (max-width: 1100px) { .three-col-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 700px) { .three-col-grid { grid-template-columns: 1fr; } }
-
-    /* Ensure Streamlit column wrappers allow children to stretch to equal heights */
-    [data-testid="column"] > div { height: 100%; display: flex; flex-direction: column; min-height: 0; align-items: stretch; }
-    [data-testid="column"] { height: 100%; min-height: 0; align-items: stretch; }
-    [data-testid="column"] > div > div { flex: 1 1 auto; min-height: 0; display:flex; flex-direction:column; align-items:stretch; }
-    .stColumns > div, .css-1lcbmhc > div { height: 100%; display:flex; flex-direction:column; min-height:0; align-items:stretch; }
-    .stColumns > div > div, .css-1lcbmhc > div > div { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; align-items:stretch; }
-
-    /* --- Article card: stretch to fill column and align content top --- */
-    .article-card {
-      background: transparent;
-      border: none;
-      box-shadow: none;
-      border-radius: 0;
-      padding: 12px 10px;
-      margin: 0;
-      transition: none;
-      position: relative;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start; /* keep content at top so headings align */
-      align-items: stretch;        /* allow heading box to be full width and align across row */
-      text-align: center;
-      height: 100%;
-      flex: 1 1 auto;
-      min-height: 0;
+    
+    .headline-card {
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        margin-bottom: 20px;
+        border-left: 6px solid #8B0000;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
     }
-    .article-card:hover { transform: none; box-shadow: none; }
-
-    /* --- Heading box: fixed visual height so all headings align across the row --- */
-    /* Adjust min-height to match the maximum number of title lines you want to allow.
-       Here we reserve space for up to ~3 lines of title comfortably; increase if needed. */
-    .heading-box {
-      background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-      color: #ffffff;
-      padding: 10px 12px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;       /* vertically center title inside the heading box */
-      justify-content: center;   /* horizontally center title */
-      width: 100%;
-      margin-bottom: 8px;
-      font-weight: 800;
-      letter-spacing: -0.2px;
-      box-shadow: 0 6px 18px rgba(143,99,255,0.12);
-      border: 1px solid rgba(143,99,255,0.12);
-      min-height: calc(1.15em * 3.2); /* reserve vertical space so headings align across row */
-      box-sizing: border-box;
+    
+    .headline-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, #8B0000 0%, #DC143C 50%, #8B0000 100%);
     }
-    .heading-box a.article-link, .heading-box strong {
-      color: #ffffff;
-      text-decoration: none;
-      display: block;
-      text-align: center;
-      line-height: 1.15;
-      word-break: break-word;
+    
+    .headline-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 30px rgba(139, 0, 0, 0.15);
     }
-
-    /* Title/link outside heading remains centered and constrained */
-    a.article-link { text-decoration: none; color: var(--text); display:inline-block; padding:4px 6px; border-radius:6px; }
-    a.article-link:hover { background: rgba(143,99,255,0.06); text-decoration: none; }
-
-    /* --- Image centering and responsive behavior --- */
-    .article-card .stImage,
-    .article-card .element-container,
-    .article-card figure,
-    .article-card .stImage > div {
-      display: flex !important;
-      justify-content: center !important;
-      align-items: center !important;
-      width: 100% !important;
-      margin: 0 !important;
-      padding: 0 !important;
+    
+    .headline-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin-bottom: 12px;
+        line-height: 1.4;
+        font-family: 'Inter', sans-serif;
     }
-    .article-card img,
-    .article-card .stImage img,
-    .article-card .element-container img,
-    .article-card figure img {
-      display: block !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
-      margin-top: 8px !important;
-      margin-bottom: 8px !important;
-      width: auto !important;
-      max-width: 100% !important;
-      height: auto !important;
-      max-height: none !important;
-      object-fit: contain !important;
-      border-radius: 6px !important;
-      flex: 0 0 auto !important;
+    
+    .headline-meta {
+        font-size: 13px;
+        color: #666;
+        margin-bottom: 12px;
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
     }
-    .article-card img[width] { width: auto !important; max-width: 100% !important; height: auto !important; }
-
-    /* --- Summary: reserve 12 lines of space and center --- */
-    .summary {
-      color: #ffffff; /* changed to white per request */
-      font-size: 0.96rem;
-      line-height: 1.45;
-      margin-top: 6px;
-      font-family: 'Inter', sans-serif;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 12; /* show up to 12 lines visually */
-      /* Reserve space for 12 lines even if content is shorter */
-      min-height: calc(1.45em * 12);
-      text-align: center;
-      flex: 0 0 auto;
-      width: 100%;
-      box-sizing: border-box;
+    
+    .meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
     }
-
-    /* Muted meta centered - set to white by default per request */
-    .muted { color: #ffffff; font-size: 0.9rem; margin-bottom: 6px; display:block; font-family: 'Inter', sans-serif; opacity: 0.95; text-align:center; }
-
-    /* Small spacing for single-column layout only */
-    @media (max-width: 700px) {
-      .article-card { padding: 10px; }
-      .heading-box { min-height: calc(1.15em * 2.6); } /* slightly smaller on narrow screens */
+    
+    .sentiment-positive {
+        color: #2d8659;
+        font-weight: bold;
+        background: #e6f7ef;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 12px;
     }
-
-    /* header modernized */
-    .top-header { margin-bottom: 12px; }
-    .brand { display:flex; align-items:center; gap:12px; font-family: 'Inter', sans-serif; }
-    .brand .logo { width:40px;height:40px;border-radius:8px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px; }
-
+    
+    .sentiment-negative {
+        color: #c41e3a;
+        font-weight: bold;
+        background: #fde8eb;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+    }
+    
+    .sentiment-neutral {
+        color: #5a5a5a;
+        font-weight: bold;
+        background: #f0f0f0;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+    }
+    
+    .summary-box {
+        background: linear-gradient(135deg, #8B0000 0%, #6b0000 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 20px;
+        box-shadow: 0 8px 30px rgba(139, 0, 0, 0.3);
+        margin: 20px 0;
+        border: 2px solid #a01010;
+    }
+    
+    .summary-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 20px;
+        color: #ffd6d6;
+        text-align: center;
+    }
+    
+    .summary-content {
+        font-size: 16px;
+        line-height: 1.8;
+        color: #fff;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background: linear-gradient(135deg, #fafafa 0%, #f5f0f0 100%);
+        padding: 10px;
+        border-radius: 15px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: white;
+        border-radius: 10px;
+        color: #8B0000;
+        font-weight: 600;
+        padding: 10px 20px;
+        border: 2px solid transparent;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #8B0000 0%, #a01010 100%);
+        color: white;
+        border: 2px solid #DC143C;
+    }
+    
+    h1, h2, h3 {
+        font-family: 'Playfair Display', serif;
+        color: #8B0000;
+    }
+    
+    .stButton button {
+        background: linear-gradient(135deg, #8B0000 0%, #a01010 100%);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 25px;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(139, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(139, 0, 0, 0.3);
+    }
+    
+    .insight-card {
+        background: linear-gradient(135deg, #fff9f9 0%, #ffffff 100%);
+        padding: 20px;
+        border-radius: 15px;
+        border: 2px solid #ffebeb;
+        box-shadow: 0 2px 10px rgba(139, 0, 0, 0.05);
+    }
+    
+    .stat-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #8B0000 0%, #a01010 100%);
+        color: white;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(139, 0, 0, 0.2);
+    }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
 
-# ---------- Sidebar content (with saved prefs) ----------
-COMMON_TZ = [
-    "System", "UTC", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
-    "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai", "Australia/Sydney"
-]
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def fetch_nyt_politics_feed():
+    """Fetch NYT Politics RSS feed"""
+    try:
+        # NYT Politics RSS feed
+        feed_url = "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml"
+        feed = feedparser.parse(feed_url)
+        
+        articles = []
+        for entry in feed.entries:
+            article = {
+                'title': entry.get('title', 'No title'),
+                'link': entry.get('link', ''),
+                'published': entry.get('published', ''),
+                'summary': entry.get('summary', ''),
+                'published_parsed': entry.get('published_parsed', None)
+            }
+            articles.append(article)
+        
+        return articles, feed.feed.get('title', 'NYT Politics')
+    except Exception as e:
+        st.error(f"Error fetching feed: {str(e)}")
+        return [], "Error"
 
-# Load defaults from saved prefs if available
-default_feed = _saved_prefs.get("feed_choice", "Top Stories")
-default_layout = _saved_prefs.get("layout_choice", "3-up grid (3 per row)")
-default_image_width = _saved_prefs.get("image_width", DEFAULT_THUMB_WIDTH)
-default_show_images = _saved_prefs.get("show_images", True)
-default_text_size = _saved_prefs.get("text_size", "Comfortable")
-default_tz = _saved_prefs.get("tz_choice", "System")
-default_num_articles = _saved_prefs.get("num_articles", 60)
-default_keyword = _saved_prefs.get("keyword", "")
-default_sort_by = _saved_prefs.get("sort_by", "Newest")
-default_date_from = _saved_prefs.get("date_from", (datetime.utcnow() - timedelta(days=7)).date())
-default_date_to = _saved_prefs.get("date_to", datetime.utcnow().date())
+def analyze_sentiment(text):
+    """Analyze sentiment of text using TextBlob"""
+    try:
+        blob = TextBlob(text)
+        polarity = blob.sentiment.polarity
+        
+        if polarity > 0.1:
+            return 'Positive', polarity
+        elif polarity < -0.1:
+            return 'Negative', polarity
+        else:
+            return 'Neutral', polarity
+    except:
+        return 'Neutral', 0.0
 
-with st.sidebar:
-    st.markdown("## NYT Dashboard")
-    st.markdown("Choose which NYT feed to view and how to display articles.")
-    feed_choice = st.selectbox("NYT feed", ["Top Stories", "Politics"], index=["Top Stories", "Politics"].index(default_feed))
-    num_articles = st.slider("Max articles to aggregate", 5, 200, int(default_num_articles))
-    image_width = st.number_input("Thumbnail width px", min_value=80, max_value=400, value=int(default_image_width), step=10)
-    layout_choice = st.selectbox("Layout", ["3-up grid (3 per row)", "Simple list (single column)"], index=["3-up grid (3 per row)", "Simple list (single column)"].index(default_layout))
-    show_images = st.checkbox("Show images", value=default_show_images)
-    use_extraction = st.checkbox("Fetch full article text", value=_saved_prefs.get("use_extraction", False))
-    text_size = st.selectbox("Text size", ["Comfortable", "Large", "Extra large"], index=["Comfortable", "Large", "Extra large"].index(default_text_size))
-    st.markdown("---")
-    st.markdown("### Filters")
-    keyword = st.text_input("Keyword filter", value=default_keyword)
-    date_from = st.date_input("From", value=default_date_from)
-    date_to = st.date_input("To", value=default_date_to)
-    sort_by = st.selectbox("Sort by", ["Newest", "Oldest", "Source A→Z"], index=["Newest", "Oldest", "Source A→Z"].index(default_sort_by))
-    st.markdown("---")
-    st.markdown("### Timezone")
-    tz_choice = st.selectbox("Display timezone", COMMON_TZ, index=COMMON_TZ.index(default_tz) if default_tz in COMMON_TZ else 0)
-    st.markdown("---")
-    st.markdown("### Preferences")
-    if st.button("Save preferences"):
-        prefs_to_save = {
-            "feed_choice": feed_choice,
-            "num_articles": num_articles,
-            "image_width": image_width,
-            "layout_choice": layout_choice,
-            "show_images": show_images,
-            "use_extraction": use_extraction,
-            "text_size": text_size,
-            "keyword": keyword,
-            "date_from": str(date_from),
-            "date_to": str(date_to),
-            "sort_by": sort_by,
-            "tz_choice": tz_choice,
-        }
-        save_prefs(prefs_to_save)
-        st.success("Preferences saved to user_prefs.json")
+def extract_keywords(articles, top_n=20):
+    """Extract common keywords from headlines"""
+    all_text = ' '.join([article['title'] for article in articles])
+    # Remove common words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                  'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+                  'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+                  'could', 'should', 'may', 'might', 'can', 'after', 'over', 'says',
+                  'new', 'how', 'what', 'when', 'where', 'who', 'why', 'it', 'its'}
+    
+    words = re.findall(r'\b[a-z]{4,}\b', all_text.lower())
+    words = [w for w in words if w not in stop_words]
+    
+    return Counter(words).most_common(top_n)
 
-# Note: "Show sidebar" checkbox and its logic have been removed per request.
-# The sidebar will always be shown by default.
+def categorize_article(title):
+    """Categorize article based on keywords in title"""
+    title_lower = title.lower()
+    
+    categories = {
+        '🏛️ Legislation': ['bill', 'senate', 'congress', 'house', 'legislation', 'law', 'vote', 'passes'],
+        '🗳️ Elections': ['election', 'campaign', 'ballot', 'primary', 'candidate', 'voter'],
+        '🌍 International': ['foreign', 'international', 'china', 'russia', 'ukraine', 'israel', 'gaza', 'war'],
+        '💰 Economy': ['economy', 'inflation', 'budget', 'spending', 'tax', 'debt', 'financial'],
+        '⚖️ Judicial': ['court', 'supreme', 'judge', 'ruling', 'legal', 'justice'],
+        '🏛️ Executive': ['president', 'white house', 'administration', 'executive', 'biden', 'trump'],
+        '🏥 Healthcare': ['healthcare', 'medicaid', 'medicare', 'health', 'medical'],
+        '🌱 Environment': ['climate', 'environment', 'energy', 'emissions', 'green'],
+        '🔒 Security': ['security', 'defense', 'military', 'border', 'immigration', 'police'],
+    }
+    
+    for category, keywords in categories.items():
+        if any(keyword in title_lower for keyword in keywords):
+            return category
+    
+    return '📰 General'
 
-# ---------- Text size adjustments ----------
-if text_size == "Large":
-    st.markdown("<style> .article-card h3{font-size:1.15rem;} .summary{font-size:1.05rem;} </style>", unsafe_allow_html=True)
-elif text_size == "Extra large":
-    st.markdown("<style> .article-card h3{font-size:1.25rem;} .summary{font-size:1.12rem;} </style>", unsafe_allow_html=True)
+def extract_entities(articles):
+    """Extract key political entities (people, places, orgs) from headlines"""
+    all_text = ' '.join([a['title'] for a in articles])
+    
+    # Common politicians and figures
+    politicians = {
+        'Trump': 0, 'Biden': 0, 'Harris': 0, 'Vance': 0, 'Obama': 0,
+        'Pelosi': 0, 'McCarthy': 0, 'McConnell': 0, 'Schumer': 0,
+        'DeSantis': 0, 'Newsom': 0, 'Pence': 0, 'Sanders': 0,
+        'AOC': 0, 'Ocasio-Cortez': 0, 'Warren': 0, 'Cruz': 0
+    }
+    
+    # Countries and regions
+    locations = {
+        'China': 0, 'Russia': 0, 'Ukraine': 0, 'Israel': 0, 'Gaza': 0,
+        'Iran': 0, 'Mexico': 0, 'Europe': 0, 'Asia': 0, 'Middle East': 0
+    }
+    
+    # Organizations
+    organizations = {
+        'GOP': 0, 'Republican': 0, 'Democrat': 0, 'Democratic': 0,
+        'Senate': 0, 'House': 0, 'Congress': 0, 'Supreme Court': 0,
+        'White House': 0, 'Pentagon': 0, 'FBI': 0, 'CIA': 0, 'NATO': 0
+    }
+    
+    # Count mentions
+    for entity in politicians:
+        politicians[entity] = len(re.findall(rf'\b{entity}\b', all_text, re.IGNORECASE))
+    
+    for entity in locations:
+        locations[entity] = len(re.findall(rf'\b{entity}\b', all_text, re.IGNORECASE))
+    
+    for entity in organizations:
+        organizations[entity] = len(re.findall(rf'\b{entity}\b', all_text, re.IGNORECASE))
+    
+    # Filter out zero mentions and sort
+    politicians = {k: v for k, v in sorted(politicians.items(), key=lambda x: x[1], reverse=True) if v > 0}
+    locations = {k: v for k, v in sorted(locations.items(), key=lambda x: x[1], reverse=True) if v > 0}
+    organizations = {k: v for k, v in sorted(organizations.items(), key=lambda x: x[1], reverse=True) if v > 0}
+    
+    return politicians, locations, organizations
 
-# ---------- Top header ----------
-st.markdown(
-    "<div class='top-header'><div class='brand'><div class='logo'>NY</div><div style='font-weight:700;font-size:1.05rem;'>NYT Dashboard</div></div></div>",
-    unsafe_allow_html=True,
-)
-
-# ---------- Fetch and aggregate ----------
-feed_url = NYT_FEEDS.get(feed_choice, NYT_FEEDS["Top Stories"])
-rss_items = []
-try:
-    rss_items = fetch_rss(feed_url)
-except Exception:
-    st.warning(f"Failed to fetch feed {feed_url}")
-
-# Deduplicate and parse dates
-seen = set()
-unique = []
-for it in rss_items:
-    link = it.get("link")
-    if not link or link in seen:
-        continue
-    seen.add(link)
-    pub_dt = None
-    if it.get("published_struct"):
-        try:
-            import time as _time
-            pub_dt = datetime.fromtimestamp(_time.mktime(it["published_struct"]))
-            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            pub_dt = None
-    if not pub_dt:
-        pub_dt = parse_iso_date(it.get("published"))
-    it["published_dt"] = pub_dt
-    unique.append(it)
-
-# Apply filters
-def matches_filters(item):
-    pub = item.get("published_dt")
-    if pub:
-        if pub.date() < date_from or pub.date() > date_to:
-            return False
-    if keyword:
-        k = keyword.lower()
-        if k not in (item.get("title") or "").lower() and k not in (item.get("summary") or "").lower():
-            return False
-    return True
-
-filtered = [it for it in unique if matches_filters(it)]
-if sort_by == "Newest":
-    filtered.sort(key=lambda x: x.get("published_dt") or datetime.min, reverse=True)
-elif sort_by == "Oldest":
-    filtered.sort(key=lambda x: x.get("published_dt") or datetime.min)
-else:
-    filtered.sort(key=lambda x: (x.get("source") or "").lower())
-
-cap = min(num_articles, MAX_AGGREGATE)
-filtered = filtered[:cap]
-
-# ---------- Summarization trigger ----------
-summarize_now = st.session_state.pop("_summarize_now", False)
-summary_result = None
-if summarize_now:
-    summary_result = summarize_articles(filtered, max_sentences=3)
-
-# ---------- Long-scroll rendering (Results only) ----------
-# Open button removed per request.
-with st.container():
-    if summary_result:
-        with st.expander("Summary of aggregated headlines"):
-            st.markdown(f"**Summary:** {summary_result['summary']}")
-            if summary_result["top_keywords"]:
-                kw_line = ", ".join(f"{k} ({round(v,2)})" for k, v in summary_result["top_keywords"])
-                st.markdown(f"**Top keywords:** {kw_line}")
-
-    if not filtered:
-        st.info("No articles match your filters.")
+def extract_main_topic(title):
+    """Extract the main topic from headline for search"""
+    # Remove common political phrases
+    cleaned = title
+    remove_phrases = ['Trump', 'Biden', 'says', 'plans to', 'wants to', 'will', 'could', 'may']
+    
+    # Extract key noun phrases (simplified)
+    words = title.split()
+    if len(words) > 4:
+        # Take middle portion as likely to contain the main topic
+        topic = ' '.join(words[1:4])
     else:
-        if layout_choice == "3-up grid (3 per row)":
-            cols = st.columns(3)
-            for idx, art in enumerate(filtered):
-                col = cols[idx % 3]
-                with col:
-                    st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"<div class='heading-box'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
-                        unsafe_allow_html=True,
-                    )
-                    meta = []
-                    if art.get("source"):
-                        meta.append(f"{art['source']}")
-                    if art.get("published_dt"):
-                        meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
-                    if meta:
-                        st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-                    if show_images and art.get("media"):
-                        try:
-                            # st.image will render an <img> inside wrappers; CSS centers it and now images are uncapped
-                            st.image(art["media"], width=int(image_width))
-                        except Exception:
-                            pass
-                    if art.get("summary"):
-                        st.markdown(
-                            f"<div class='summary'>{(art.get('summary') or '')[:320]}{'…' if len(art.get('summary') or '')>320 else ''}</div>",
-                            unsafe_allow_html=True,
-                        )
+        topic = ' '.join(words[:3])
+    
+    return topic
 
-                    st.markdown("</div>", unsafe_allow_html=True)
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def generate_summary(articles):
+    """Generate intelligent summary of today's headlines"""
+    try:
+        # Get today's articles
+        today = datetime.now().date()
+        today_articles = []
+        
+        for article in articles[:20]:
+            if article['published_parsed']:
+                article_date = datetime(*article['published_parsed'][:6]).date()
+                if article_date == today:
+                    today_articles.append(article)
+        
+        if not today_articles:
+            today_articles = articles[:15]
+        
+        # Analyze sentiment distribution
+        positive = sum(1 for a in today_articles if a.get('sentiment') == 'Positive')
+        negative = sum(1 for a in today_articles if a.get('sentiment') == 'Negative')
+        neutral = sum(1 for a in today_articles if a.get('sentiment') == 'Neutral')
+        
+        # Extract key topics
+        all_text = ' '.join([a['title'] for a in today_articles])
+        keywords = extract_keywords(today_articles, top_n=8)
+        top_topics = [kw[0] for kw in keywords[:5]]
+        
+        # Identify key themes from headlines
+        themes = []
+        theme_words = {
+            'election': ['election', 'vote', 'campaign', 'ballot', 'primary'],
+            'legislation': ['bill', 'senate', 'congress', 'house', 'legislation', 'law'],
+            'international': ['foreign', 'international', 'china', 'russia', 'ukraine', 'israel'],
+            'economic': ['economy', 'inflation', 'budget', 'spending', 'tax'],
+            'judicial': ['court', 'supreme', 'judge', 'ruling', 'legal'],
+            'executive': ['president', 'white house', 'administration', 'executive']
+        }
+        
+        for theme, words in theme_words.items():
+            if any(word in all_text.lower() for word in words):
+                themes.append(theme)
+        
+        # Generate summary
+        sentiment_tone = "mixed" if abs(positive - negative) < 3 else ("positive" if positive > negative else "negative")
+        
+        summary_parts = []
+        
+        # Opening
+        summary_parts.append(f"Today's political coverage features {len(today_articles)} articles with a {sentiment_tone} overall tone.")
+        
+        # Key topics
+        if top_topics:
+            topics_str = ", ".join([f"**{t}**" for t in top_topics[:3]])
+            summary_parts.append(f"The dominant themes include {topics_str}.")
+        
+        # Sentiment breakdown
+        if positive > 0 or negative > 0:
+            summary_parts.append(f"Sentiment analysis shows {positive} positive, {neutral} neutral, and {negative} negative headlines.")
+        
+        # Theme analysis
+        if themes:
+            theme_str = ", ".join([t.capitalize() for t in themes[:3]])
+            summary_parts.append(f"Major areas of focus: {theme_str}.")
+        
+        # Top headlines
+        top_3 = today_articles[:3]
+        summary_parts.append(f"\n\n**Top Stories:**")
+        for i, article in enumerate(top_3, 1):
+            summary_parts.append(f"\n{i}. {article['title']}")
+        
+        summary = " ".join(summary_parts)
+        
+        return summary, len(today_articles)
+    
+    except Exception as e:
+        return f"Analyzing {len(articles)} recent political headlines. Use the tabs below to explore sentiment analysis, trending keywords, and detailed insights.", len(articles)
 
-        else:  # Simple single-column list
-            for idx, art in enumerate(filtered):
-                st.markdown("<div class='article-card'>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='heading-box' style='width:100%'><a class='article-link' href='{art.get('link')}' target='_self' rel='noopener noreferrer'><strong>{art.get('title')}</strong></a></div>",
-                    unsafe_allow_html=True,
-                )
-                meta = []
-                if art.get("source"):
-                    meta.append(f"{art['source']}")
-                if art.get("published_dt"):
-                    meta.append(format_dt_for_display(art.get("published_dt"), tz_choice))
-                if meta:
-                    st.markdown(f"<div class='muted'>{' • '.join(meta)}</div>", unsafe_allow_html=True)
-                if show_images and art.get("media"):
+def main():
+    # Initialize session state
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+    
+    # Header with wine red theme
+    st.markdown("""
+        <div style="text-align: center; padding: 20px 0;">
+            <h1 style="font-family: 'Playfair Display', serif; font-size: 48px; color: #8B0000; margin-bottom: 5px;">
+                📰 NYT Politics Dashboard
+            </h1>
+            <p style="font-size: 18px; color: #666; font-style: italic;">
+                Real-time intelligence on American politics
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Sidebar
+    st.sidebar.markdown('<h2 style="color: #8B0000;">⚙️ Dashboard Controls</h2>', unsafe_allow_html=True)
+    
+    # Auto-refresh toggle
+    auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=False)
+    if auto_refresh:
+        time.sleep(30)
+        st.rerun()
+    
+    # Manual refresh button
+    if st.sidebar.button("🔄 Refresh Now"):
+        st.cache_data.clear()
+        st.rerun()
+    
+    # Fetch data FIRST
+    with st.spinner("Fetching latest headlines..."):
+        articles, feed_title = fetch_nyt_politics_feed()
+    
+    if not articles:
+        st.warning("No articles found. Please check your connection.")
+        return
+    
+    # Add sentiment analysis and categorization
+    for article in articles:
+        sentiment, polarity = analyze_sentiment(article['title'])
+        article['sentiment'] = sentiment
+        article['polarity'] = polarity
+        article['category'] = categorize_article(article['title'])
+    
+    # NOW add filters in sidebar (after articles are processed)
+    st.sidebar.markdown('<h3 style="color: #8B0000;">🔍 Filters</h3>', unsafe_allow_html=True)
+    
+    search_query = st.sidebar.text_input("🔎 Search headlines", "")
+    
+    # Category filter
+    all_categories = sorted(list(set([a.get('category', '📰 General') for a in articles])))
+    selected_categories = st.sidebar.multiselect(
+        "📑 Filter by category",
+        all_categories,
+        default=all_categories
+    )
+    
+    sentiment_filter = st.sidebar.multiselect(
+        "😊 Filter by sentiment",
+        ["Positive", "Neutral", "Negative"],
+        default=["Positive", "Neutral", "Negative"]
+    )
+    
+    hours_back = st.sidebar.slider("⏰ Show articles from last N hours", 1, 168, 24)
+    
+    # Breaking news toggle
+    show_breaking = st.sidebar.checkbox("🚨 Breaking News Only (last 3 hours)", value=False)
+    
+    # Filter by time
+    if show_breaking:
+        cutoff_time = datetime.now() - timedelta(hours=3)
+    else:
+        cutoff_time = datetime.now() - timedelta(hours=hours_back)
+    
+    filtered_articles = []
+    for article in articles:
+        if article['published_parsed']:
+            article_time = datetime(*article['published_parsed'][:6])
+            if article_time >= cutoff_time:
+                filtered_articles.append(article)
+        else:
+            filtered_articles.append(article)
+    
+    # Filter by search query
+    if search_query:
+        filtered_articles = [
+            a for a in filtered_articles 
+            if search_query.lower() in a['title'].lower() or 
+               search_query.lower() in a.get('summary', '').lower()
+        ]
+    
+    # Filter by category
+    filtered_articles = [a for a in filtered_articles if a.get('category', '📰 General') in selected_categories]
+    
+    # Filter by sentiment
+    filtered_articles = [a for a in filtered_articles if a['sentiment'] in sentiment_filter]
+    
+    # Metrics row
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("📰 Total Articles", len(filtered_articles))
+    
+    with col2:
+        positive_count = sum(1 for a in filtered_articles if a['sentiment'] == 'Positive')
+        st.metric("😊 Positive", positive_count)
+    
+    with col3:
+        negative_count = sum(1 for a in filtered_articles if a['sentiment'] == 'Negative')
+        st.metric("😞 Negative", negative_count)
+    
+    with col4:
+        neutral_count = sum(1 for a in filtered_articles if a['sentiment'] == 'Neutral')
+        st.metric("😐 Neutral", neutral_count)
+    
+    with col5:
+        # Count breaking news (last 3 hours)
+        breaking_cutoff = datetime.now() - timedelta(hours=3)
+        breaking_count = sum(1 for a in filtered_articles 
+                           if a.get('published_parsed') and 
+                           datetime(*a['published_parsed'][:6]) >= breaking_cutoff)
+        st.metric("🚨 Breaking", breaking_count)
+    
+    # Category distribution
+    st.markdown("---")
+    st.markdown('<h3 style="color: #8B0000; text-align: center;">📊 Coverage by Category</h3>', 
+                unsafe_allow_html=True)
+    
+    category_counts = Counter([a.get('category', '📰 General') for a in filtered_articles])
+    
+    cols = st.columns(min(len(category_counts), 5))
+    for idx, (category, count) in enumerate(category_counts.most_common(5)):
+        with cols[idx]:
+            st.markdown(f"""
+                <div style="text-align: center; padding: 10px; background: linear-gradient(135deg, #fff9f9 0%, #ffffff 100%);
+                            border-radius: 10px; border: 2px solid #ffebeb;">
+                    <div style="font-size: 24px;">{category.split()[0]}</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #8B0000;">{count}</div>
+                    <div style="font-size: 12px; color: #666;">{category.split(' ', 1)[1] if ' ' in category else 'Articles'}</div>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    # AI Summary Section
+    st.markdown("---")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown('<div class="summary-title">📋 Daily Briefing</div>', unsafe_allow_html=True)
+    
+    with col2:
+        generate_new = st.button("🔄 Regenerate Summary", key="regen_summary")
+        if generate_new:
+            st.cache_data.clear()
+    
+    with st.spinner("Generating daily briefing from latest headlines..."):
+        summary, article_count = generate_summary(articles)
+    
+    st.markdown(f"""
+        <div class="summary-box">
+            <div class="summary-content">
+                {summary}
+            </div>
+            <div style="text-align: right; margin-top: 20px; font-size: 14px; opacity: 0.9;">
+                <span class="stat-badge">Based on {article_count} articles</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Tabs for different views
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📋 Headlines", "📊 Analytics", "🔤 Keywords", "📈 Trends", "💡 Insights", "👥 Entities"
+    ])
+    
+    with tab1:
+        st.markdown('<h2 style="color: #8B0000;">Latest Headlines</h2>', unsafe_allow_html=True)
+        
+        # Sort options
+        sort_by = st.selectbox("Sort by", ["Most Recent", "Sentiment (Positive first)", "Sentiment (Negative first)"])
+        
+        if sort_by == "Sentiment (Positive first)":
+            filtered_articles.sort(key=lambda x: x['polarity'], reverse=True)
+        elif sort_by == "Sentiment (Negative first)":
+            filtered_articles.sort(key=lambda x: x['polarity'])
+        
+        # Display articles
+        for idx, article in enumerate(filtered_articles):
+            sentiment_class = f"sentiment-{article['sentiment'].lower()}"
+            pub_time = article['published']
+            category = article.get('category', '📰 General')
+            
+            st.markdown(f"""
+                <div class="headline-card">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                        <span class="headline-title">
+                            <span style="color: #8B0000; font-weight: 800;">#{idx + 1}</span> {article['title']}
+                        </span>
+                        <span style="background: linear-gradient(135deg, #8B0000 0%, #a01010 100%); 
+                                     color: white; padding: 5px 12px; border-radius: 15px; 
+                                     font-size: 12px; white-space: nowrap; margin-left: 10px;">
+                            {category}
+                        </span>
+                    </div>
+                    <div class="headline-meta">
+                        <span class="meta-item">🕐 {pub_time}</span>
+                        <span class="meta-item">
+                            💭 Sentiment: <span class="{sentiment_class}">{article['sentiment']}</span>
+                        </span>
+                        <span class="meta-item" style="color: #8B0000;">
+                            📊 Score: {article['polarity']:.3f}
+                        </span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Article actions in columns
+            col_a, col_b, col_c = st.columns([1, 1, 2])
+            
+            with col_a:
+                if st.button("📖 Read Article", key=f"read_{idx}"):
+                    st.markdown(f'<meta http-equiv="refresh" content="0;url={article["link"]}">', 
+                              unsafe_allow_html=True)
+                    st.write(f"[Open in new tab]({article['link']})")
+            
+            with col_b:
+                if st.button("🔍 Get Context", key=f"context_{idx}"):
+                    st.session_state[f'show_context_{idx}'] = True
+            
+            # Show context if requested
+            if st.session_state.get(f'show_context_{idx}', False):
+                with st.spinner("Gathering additional context..."):
+                    topic = extract_main_topic(article['title'])
+                    
+                    # Create search query
+                    search_query = f"{topic} politics news"
+                    
                     try:
-                        st.image(art["media"], width=int(image_width))
-                    except Exception:
-                        pass
-                if art.get("summary"):
-                    st.markdown(
-                        f"<div class='summary'>{(art.get('summary') or '')[:600]}{'…' if len(art.get('summary') or '')>600 else ''}</div>",
-                        unsafe_allow_html=True,
+                        # Import web_search here to avoid errors if not available
+                        from anthropic import Anthropic
+                        
+                        # Use a simple contextual summary
+                        st.markdown(f"""
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; 
+                                    border-left: 4px solid #8B0000; margin: 10px 0;">
+                            <h4 style="color: #8B0000; margin-bottom: 10px;">📰 Article Context</h4>
+                            <p><strong>Main Topic:</strong> {topic}</p>
+                            <p><strong>Category:</strong> {category}</p>
+                            <p><strong>Sentiment:</strong> {article['sentiment']} ({article['polarity']:.2f})</p>
+                            <p style="margin-top: 10px;">
+                                <a href="{article['link']}" target="_blank" 
+                                   style="color: #8B0000; text-decoration: underline;">
+                                    Read full article on NYT →
+                                </a>
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.info(f"**Topic:** {topic} | **Category:** {category}")
+            
+            st.markdown("---")
+    
+    with tab2:
+        st.markdown('<h2 style="color: #8B0000;">Sentiment Analysis</h2>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Sentiment pie chart
+            sentiment_counts = pd.DataFrame([
+                {'Sentiment': 'Positive', 'Count': positive_count},
+                {'Sentiment': 'Neutral', 'Count': neutral_count},
+                {'Sentiment': 'Negative', 'Count': negative_count}
+            ])
+            
+            fig_pie = px.pie(
+                sentiment_counts, 
+                values='Count', 
+                names='Sentiment',
+                title='Sentiment Distribution',
+                color='Sentiment',
+                color_discrete_map={
+                    'Positive': '#2d8659',
+                    'Neutral': '#8B8B8B',
+                    'Negative': '#8B0000'
+                },
+                hole=0.4
+            )
+            fig_pie.update_layout(
+                font=dict(family="Inter, sans-serif"),
+                title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif")
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        
+        with col2:
+            # Sentiment polarity distribution
+            polarities = [a['polarity'] for a in filtered_articles]
+            fig_hist = go.Figure(data=[go.Histogram(
+                x=polarities, 
+                nbinsx=20,
+                marker_color='#8B0000',
+                marker_line_color='#6b0000',
+                marker_line_width=1.5
+            )])
+            fig_hist.update_layout(
+                title='Sentiment Polarity Distribution',
+                xaxis_title='Polarity Score',
+                yaxis_title='Number of Articles',
+                showlegend=False,
+                font=dict(family="Inter, sans-serif"),
+                title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+        
+        # Timeline view
+        if filtered_articles:
+            df_timeline = []
+            for article in filtered_articles:
+                if article['published_parsed']:
+                    df_timeline.append({
+                        'datetime': datetime(*article['published_parsed'][:6]),
+                        'title': article['title'],
+                        'sentiment': article['sentiment'],
+                        'polarity': article['polarity']
+                    })
+            
+            if df_timeline:
+                df_timeline = pd.DataFrame(df_timeline)
+                df_timeline['hour'] = df_timeline['datetime'].dt.floor('H')
+                
+                hourly_sentiment = df_timeline.groupby(['hour', 'sentiment']).size().reset_index(name='count')
+                
+                fig_timeline = px.bar(
+                    hourly_sentiment,
+                    x='hour',
+                    y='count',
+                    color='sentiment',
+                    title='Articles Over Time (by Sentiment)',
+                    color_discrete_map={
+                        'Positive': '#2d8659',
+                        'Neutral': '#8B8B8B',
+                        'Negative': '#8B0000'
+                    }
+                )
+                fig_timeline.update_layout(
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_timeline, use_container_width=True)
+    
+    with tab3:
+        st.markdown('<h2 style="color: #8B0000;">Keyword Analysis</h2>', unsafe_allow_html=True)
+        
+        keywords = extract_keywords(filtered_articles, top_n=30)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Top keywords bar chart
+            if keywords:
+                kw_df = pd.DataFrame(keywords, columns=['Keyword', 'Frequency'])
+                fig_kw = px.bar(
+                    kw_df.head(15),
+                    x='Frequency',
+                    y='Keyword',
+                    orientation='h',
+                    title='Top 15 Keywords',
+                    color='Frequency',
+                    color_continuous_scale=['#ffcccc', '#8B0000']
+                )
+                fig_kw.update_layout(
+                    yaxis={'categoryorder': 'total ascending'},
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_kw, use_container_width=True)
+        
+        with col2:
+            # Word cloud-style scatter
+            if keywords:
+                kw_df = pd.DataFrame(keywords[:30], columns=['Keyword', 'Frequency'])
+                fig_scatter = px.scatter(
+                    kw_df,
+                    x=range(len(kw_df)),
+                    y='Frequency',
+                    text='Keyword',
+                    size='Frequency',
+                    title='Keyword Bubble View',
+                    color='Frequency',
+                    color_continuous_scale=['#ffcccc', '#8B0000']
+                )
+                fig_scatter.update_traces(textposition='top center')
+                fig_scatter.update_layout(
+                    showlegend=False, 
+                    xaxis={'visible': False},
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        # Keywords table
+        st.subheader("All Keywords")
+        if keywords:
+            kw_df = pd.DataFrame(keywords, columns=['Keyword', 'Frequency'])
+            st.dataframe(kw_df, use_container_width=True)
+    
+    with tab4:
+        st.markdown('<h2 style="color: #8B0000;">Article Trends</h2>', unsafe_allow_html=True)
+        
+        # Average sentiment over time
+        if filtered_articles:
+            df_trends = []
+            for article in filtered_articles:
+                if article['published_parsed']:
+                    df_trends.append({
+                        'datetime': datetime(*article['published_parsed'][:6]),
+                        'polarity': article['polarity']
+                    })
+            
+            if df_trends:
+                df_trends = pd.DataFrame(df_trends)
+                df_trends = df_trends.sort_values('datetime')
+                df_trends['rolling_avg'] = df_trends['polarity'].rolling(window=5, min_periods=1).mean()
+                
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=df_trends['datetime'],
+                    y=df_trends['polarity'],
+                    mode='markers',
+                    name='Individual Articles',
+                    marker=dict(size=8, opacity=0.5, color='#a01010')
+                ))
+                fig_trend.add_trace(go.Scatter(
+                    x=df_trends['datetime'],
+                    y=df_trends['rolling_avg'],
+                    mode='lines',
+                    name='5-Article Moving Average',
+                    line=dict(color='#8B0000', width=3)
+                ))
+                fig_trend.update_layout(
+                    title='Sentiment Trend Over Time',
+                    xaxis_title='Time',
+                    yaxis_title='Sentiment Polarity',
+                    hovermode='x unified',
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_trend, use_container_width=True)
+        
+        # Publication frequency
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if filtered_articles:
+                df_freq = []
+                for article in filtered_articles:
+                    if article['published_parsed']:
+                        df_freq.append({
+                            'hour': datetime(*article['published_parsed'][:6]).hour
+                        })
+                
+                if df_freq:
+                    df_freq = pd.DataFrame(df_freq)
+                    hour_counts = df_freq['hour'].value_counts().sort_index()
+                    
+                    fig_hours = px.bar(
+                        x=hour_counts.index,
+                        y=hour_counts.values,
+                        title='Articles by Hour of Day',
+                        labels={'x': 'Hour', 'y': 'Number of Articles'},
+                        color=hour_counts.values,
+                        color_continuous_scale=['#ffcccc', '#8B0000']
                     )
+                    fig_hours.update_layout(
+                        font=dict(family="Inter, sans-serif"),
+                        title_font=dict(size=20, color='#8B0000', family="Playfair Display, serif"),
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                    st.plotly_chart(fig_hours, use_container_width=True)
+    
+    with tab5:
+        st.markdown('<h2 style="color: #8B0000;">Key Insights</h2>', unsafe_allow_html=True)
+        
+        # Calculate insights
+        avg_polarity = sum(a['polarity'] for a in filtered_articles) / len(filtered_articles) if filtered_articles else 0
+        most_positive = max(filtered_articles, key=lambda x: x['polarity']) if filtered_articles else None
+        most_negative = min(filtered_articles, key=lambda x: x['polarity']) if filtered_articles else None
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+                <div class="insight-card">
+                    <h3 style="color: #8B0000; margin-bottom: 15px;">📊 Sentiment Overview</h3>
+                    <p style="font-size: 16px; line-height: 1.8;">
+                        The average sentiment polarity across all headlines is 
+                        <span class="stat-badge">{:.3f}</span>
+                        <br><br>
+                        This indicates a <strong>{}</strong> tone overall in today's political coverage.
+                    </p>
+                </div>
+            """.format(avg_polarity, 
+                      "positive" if avg_polarity > 0.1 else "negative" if avg_polarity < -0.1 else "neutral"),
+                      unsafe_allow_html=True)
+            
+            if most_positive:
+                st.markdown(f"""
+                    <div class="insight-card" style="margin-top: 20px;">
+                        <h3 style="color: #2d8659; margin-bottom: 15px;">✨ Most Positive Headline</h3>
+                        <p style="font-size: 15px; font-weight: 600; color: #1a1a1a;">
+                            "{most_positive['title']}"
+                        </p>
+                        <p style="margin-top: 10px; color: #666;">
+                            Polarity Score: <span class="stat-badge" style="background: #2d8659;">
+                            {most_positive['polarity']:.3f}</span>
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+        
+        with col2:
+            top_keywords = extract_keywords(filtered_articles, top_n=5)
+            keyword_list = ", ".join([f"<strong>{kw[0]}</strong>" for kw in top_keywords])
+            
+            st.markdown(f"""
+                <div class="insight-card">
+                    <h3 style="color: #8B0000; margin-bottom: 15px;">🔤 Trending Topics</h3>
+                    <p style="font-size: 16px; line-height: 1.8;">
+                        The most frequently mentioned keywords today are:<br><br>
+                        {keyword_list}
+                        <br><br>
+                        These topics dominate the current political discourse.
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            if most_negative:
+                st.markdown(f"""
+                    <div class="insight-card" style="margin-top: 20px;">
+                        <h3 style="color: #8B0000; margin-bottom: 15px;">⚠️ Most Negative Headline</h3>
+                        <p style="font-size: 15px; font-weight: 600; color: #1a1a1a;">
+                            "{most_negative['title']}"
+                        </p>
+                        <p style="margin-top: 10px; color: #666;">
+                            Polarity Score: <span class="stat-badge">{most_negative['polarity']:.3f}</span>
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+        
+        # Additional insights
+        st.markdown("---")
+        st.markdown('<h3 style="color: #8B0000; margin-top: 30px;">📈 Coverage Patterns</h3>', 
+                   unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            sentiment_ratio = (positive_count / len(filtered_articles) * 100) if filtered_articles else 0
+            st.markdown(f"""
+                <div class="insight-card" style="text-align: center;">
+                    <h4 style="color: #2d8659; margin-bottom: 10px;">Positive Coverage</h4>
+                    <p style="font-size: 32px; font-weight: 700; color: #2d8659; margin: 10px 0;">
+                        {sentiment_ratio:.1f}%
+                    </p>
+                    <p style="color: #666; font-size: 14px;">of total articles</p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            neutral_ratio = (neutral_count / len(filtered_articles) * 100) if filtered_articles else 0
+            st.markdown(f"""
+                <div class="insight-card" style="text-align: center;">
+                    <h4 style="color: #8B8B8B; margin-bottom: 10px;">Neutral Coverage</h4>
+                    <p style="font-size: 32px; font-weight: 700; color: #8B8B8B; margin: 10px 0;">
+                        {neutral_ratio:.1f}%
+                    </p>
+                    <p style="color: #666; font-size: 14px;">of total articles</p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            negative_ratio = (negative_count / len(filtered_articles) * 100) if filtered_articles else 0
+            st.markdown(f"""
+                <div class="insight-card" style="text-align: center;">
+                    <h4 style="color: #8B0000; margin-bottom: 10px;">Negative Coverage</h4>
+                    <p style="font-size: 32px; font-weight: 700; color: #8B0000; margin: 10px 0;">
+                        {negative_ratio:.1f}%
+                    </p>
+                    <p style="color: #666; font-size: 14px;">of total articles</p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    with tab6:
+        st.markdown('<h2 style="color: #8B0000;">Entity Tracking</h2>', unsafe_allow_html=True)
+        st.markdown("Track mentions of key political figures, locations, and organizations in today's headlines.")
+        
+        # Extract entities
+        politicians, locations, organizations = extract_entities(filtered_articles)
+        
+        # Display in three columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown('<h3 style="color: #8B0000;">👤 Political Figures</h3>', unsafe_allow_html=True)
+            
+            if politicians:
+                # Create bar chart
+                pol_df = pd.DataFrame(list(politicians.items())[:10], columns=['Name', 'Mentions'])
+                fig_pol = px.bar(
+                    pol_df,
+                    x='Mentions',
+                    y='Name',
+                    orientation='h',
+                    title='Top Politicians Mentioned',
+                    color='Mentions',
+                    color_continuous_scale=['#ffcccc', '#8B0000']
+                )
+                fig_pol.update_layout(
+                    yaxis={'categoryorder': 'total ascending'},
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=16, color='#8B0000'),
+                    height=400,
+                    showlegend=False
+                )
+                st.plotly_chart(fig_pol, use_container_width=True)
+                
+                # List view
+                for name, count in list(politicians.items())[:5]:
+                    st.markdown(f"""
+                        <div style="background: #f8f9fa; padding: 10px; margin: 5px 0; 
+                                    border-radius: 8px; display: flex; justify-content: space-between;">
+                            <span style="font-weight: 600;">{name}</span>
+                            <span class="stat-badge" style="font-size: 12px;">{count} mentions</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No political figures mentioned in filtered articles")
+        
+        with col2:
+            st.markdown('<h3 style="color: #8B0000;">🌍 Locations</h3>', unsafe_allow_html=True)
+            
+            if locations:
+                # Create bar chart
+                loc_df = pd.DataFrame(list(locations.items())[:10], columns=['Location', 'Mentions'])
+                fig_loc = px.bar(
+                    loc_df,
+                    x='Mentions',
+                    y='Location',
+                    orientation='h',
+                    title='Top Locations Mentioned',
+                    color='Mentions',
+                    color_continuous_scale=['#ffcccc', '#8B0000']
+                )
+                fig_loc.update_layout(
+                    yaxis={'categoryorder': 'total ascending'},
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=16, color='#8B0000'),
+                    height=400,
+                    showlegend=False
+                )
+                st.plotly_chart(fig_loc, use_container_width=True)
+                
+                # List view
+                for name, count in list(locations.items())[:5]:
+                    st.markdown(f"""
+                        <div style="background: #f8f9fa; padding: 10px; margin: 5px 0; 
+                                    border-radius: 8px; display: flex; justify-content: space-between;">
+                            <span style="font-weight: 600;">{name}</span>
+                            <span class="stat-badge" style="font-size: 12px;">{count} mentions</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No locations mentioned in filtered articles")
+        
+        with col3:
+            st.markdown('<h3 style="color: #8B0000;">🏛️ Organizations</h3>', unsafe_allow_html=True)
+            
+            if organizations:
+                # Create bar chart
+                org_df = pd.DataFrame(list(organizations.items())[:10], columns=['Organization', 'Mentions'])
+                fig_org = px.bar(
+                    org_df,
+                    x='Mentions',
+                    y='Organization',
+                    orientation='h',
+                    title='Top Organizations Mentioned',
+                    color='Mentions',
+                    color_continuous_scale=['#ffcccc', '#8B0000']
+                )
+                fig_org.update_layout(
+                    yaxis={'categoryorder': 'total ascending'},
+                    font=dict(family="Inter, sans-serif"),
+                    title_font=dict(size=16, color='#8B0000'),
+                    height=400,
+                    showlegend=False
+                )
+                st.plotly_chart(fig_org, use_container_width=True)
+                
+                # List view
+                for name, count in list(organizations.items())[:5]:
+                    st.markdown(f"""
+                        <div style="background: #f8f9fa; padding: 10px; margin: 5px 0; 
+                                    border-radius: 8px; display: flex; justify-content: space-between;">
+                            <span style="font-weight: 600;">{name}</span>
+                            <span class="stat-badge" style="font-size: 12px;">{count} mentions</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No organizations mentioned in filtered articles")
+        
+        # Entity co-occurrence insights
+        st.markdown("---")
+        st.markdown('<h3 style="color: #8B0000;">🔗 Quick Insights</h3>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if politicians:
+                top_politician = list(politicians.items())[0]
+                st.markdown(f"""
+                    <div class="insight-card">
+                        <h4 style="color: #8B0000;">Most Mentioned Figure</h4>
+                        <p style="font-size: 24px; font-weight: 700; color: #8B0000; margin: 10px 0;">
+                            {top_politician[0]}
+                        </p>
+                        <p>Mentioned in <strong>{top_politician[1]}</strong> headlines</p>
+                    </div>
+                """, unsafe_allow_html=True)
+        
+        with col2:
+            if locations:
+                top_location = list(locations.items())[0]
+                st.markdown(f"""
+                    <div class="insight-card">
+                        <h4 style="color: #8B0000;">Top Location in Focus</h4>
+                        <p style="font-size: 24px; font-weight: 700; color: #8B0000; margin: 10px 0;">
+                            {top_location[0]}
+                        </p>
+                        <p>Mentioned in <strong>{top_location[1]}</strong> headlines</p>
+                    </div>
+                """, unsafe_allow_html=True)
+    
+    # Footer
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Last updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.sidebar.markdown(f"**Feed source:** {feed_title}")
+    
+    # Export functionality
+    st.sidebar.markdown('<h3 style="color: #8B0000;">📥 Export Data</h3>', unsafe_allow_html=True)
+    if st.sidebar.button("Download as CSV"):
+        df_export = pd.DataFrame([
+            {
+                'Title': a['title'],
+                'Link': a['link'],
+                'Published': a['published'],
+                'Sentiment': a['sentiment'],
+                'Polarity': a['polarity']
+            }
+            for a in filtered_articles
+        ])
+        csv = df_export.to_csv(index=False)
+        st.sidebar.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"nyt_politics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
 
-                st.markdown("</div>", unsafe_allow_html=True)
-
-st.caption("The UI uses a modern Inter font across headings and body.")
+if __name__ == "__main__":
+    main()
